@@ -11,8 +11,8 @@ and run the learning algorithm. A simple example follows:
 from rlgym_ppo import Learner
 
 def my_rlgym_function():
-    import rlgym
-    return rlgym.make()
+    import rlgym_sim
+    return rlgym_sim.make()
 
 learner = Learner(timestep_limit=50_000_000)
 learner.learn(my_rlgym_env_function)
