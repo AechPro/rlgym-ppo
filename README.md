@@ -2,7 +2,7 @@
 A vectorized implementation of PPO for use with [RLGym](https://github.com/lucas-emery/rocket-league-gym).
 
 ## INSTALLATION
-`pip install rlgym-ppo`
+`pip install git+https://github.com/AechPro/rlgym-ppo`
 
 ## USAGE
 Simply import the learner with `from rlgym_ppo import Learner`, pass it a function that will return an RLGym environment
