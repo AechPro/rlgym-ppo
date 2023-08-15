@@ -8,4 +8,4 @@ numpy>1.21
 sympy>1.10
 torch>1.13
 typing_extensions==4.7.1
-wandb>0.15.8
+wandb>0.15
