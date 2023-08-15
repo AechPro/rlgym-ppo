@@ -31,6 +31,7 @@ setup(
         'numpy>1.21',
         'sympy>1.10',
         'torch>1.13',
+        'wandb>0.15.8',
         'typing_extensions==4.7.1'
     ],
     python_requires='>=3.7',
