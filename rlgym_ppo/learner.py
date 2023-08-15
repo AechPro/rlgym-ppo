@@ -23,7 +23,7 @@ import random
 class Learner(object):
     def __init__(self,
                  env_create_function,
-                 n_proc=16,
+                 n_proc=8,
                  min_inference_size=16,
 
                  timestep_limit=5_000_000_000,
@@ -57,8 +57,7 @@ class Learner(object):
                  instance_launch_delay=None,
                  random_seed=123,
                  n_checkpoints_to_keep=5,
-                 device="auto",
-                 ):
+                 device="auto"):
 
         assert env_create_function is not None, "MUST PROVIDE A FUNCTION TO CREATE RLGYM FUNCTIONS TO INITIALIZE RLGYM-PPO"
 
