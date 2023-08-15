@@ -120,7 +120,7 @@ class Learner(object):
 
         if log_to_wandb and self.wandb_run is None and not wandb_loaded:
             project = "rlgym-ppo"
-            group = "{}".format(env_id) if wandb_group_name is None else wandb_group_name
+            group = "{}".format("unnamed-runs") if wandb_group_name is None else wandb_group_name
             run_name = "rlgym-ppo-run" if wandb_run_name is None else wandb_run_name
             print("Attempting to create new wandb run...")
             self.wandb_run = wandb.init(project=project,
