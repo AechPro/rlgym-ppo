@@ -33,7 +33,6 @@ class ContinuousPolicy(nn.Module):
             layers.append(nn.Linear(size, size))
             layers.append(nn.ReLU())
 
-        print(output_shape)
         layers.append(nn.Linear(layer_sizes[-1], output_shape))
         layers.append(nn.Tanh())
         self.model = nn.Sequential(*layers).to(self.device)
