@@ -81,6 +81,7 @@ class Learner(object):
         else:
             self.device = device
 
+        print("Using device {}".format(self.device))
         self.exp_buffer_size = exp_buffer_size
         self.timestep_limit = timestep_limit
         self.ts_per_epoch = ts_per_epoch
