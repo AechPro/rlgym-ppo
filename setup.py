@@ -21,18 +21,19 @@ setup(
     long_description_content_type='text/markdown',
     author='Matthew Allen',
     url='https://github.com/AechPro/rlgym-ppo',
+
     install_requires=[
-        'cloudpickle==2.2.1',
-        'filelock==3.12.2',
-        'gym==0.26.2',
+        'cloudpickle>2.0',
+        'filelock>3.0',
+        'gym>0.23',
         'gym-notices==0.0.8',
-        'Jinja2==3.1.2',
-        'mpmath==1.3.0',
+        'Jinja2>3.0',
+        'mpmath>1.0',
         'numpy>1.21',
         'sympy>1.10',
         'torch>1.13',
         'wandb>0.15',
-        'typing_extensions==4.7.1'
+        'typing_extensions>4.6'
     ],
     python_requires='>=3.7',
     cmdclass={'install': CustomInstall},
