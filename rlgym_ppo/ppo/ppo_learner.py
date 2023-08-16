@@ -105,12 +105,14 @@ class PPOLearner(object):
                 loss = policy_loss - entropy * self.ent_coef
                 self.policy_optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.5)
                 self.policy_optimizer.step()
 
                 # Update the value estimator.
                 loss = value_loss
                 self.value_optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), max_norm=0.5)
                 self.value_optimizer.step()
 
                 mean_val_loss += value_loss.detach().item()

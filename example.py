@@ -44,5 +44,6 @@ def build_rocketsim_env():
 
 if __name__ == "__main__":
     from rlgym_ppo import Learner
-    learner = Learner(build_rocketsim_env)
+    learner = Learner(build_rocketsim_env,
+                      log_to_wandb=True)
     learner.learn()
