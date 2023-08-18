@@ -253,12 +253,12 @@ class Learner(object):
 
         # Save all the things that need saving.
         self.ppo_learner.save_to(folder_path)
-        self.return_stats.save(folder_path)
 
         book_keeping_vars = {"cumulative_timesteps":self.agent.cumulative_timesteps,
                              "cumulative_model_updates":self.ppo_learner.cumulative_model_updates,
                              "policy_average_reward":self.agent.average_reward,
-                             "epoch":self.epoch}
+                             "epoch":self.epoch,
+                             "running_stats":self.return_stats.to_json()}
 
         if self.wandb_run is not None:
             book_keeping_vars["wandb_run_id"] = self.wandb_run.id
@@ -287,7 +287,6 @@ class Learner(object):
 
         # Load stuff.
         self.ppo_learner.load_from(folder_path)
-        self.return_stats.load(folder_path)
 
         wandb_loaded = False
         with open(os.path.join(folder_path, "BOOK_KEEPING_VARS.json"), 'r') as f:
@@ -295,6 +294,7 @@ class Learner(object):
             self.agent.cumulative_timesteps = book_keeping_vars["cumulative_timesteps"]
             self.agent.average_reward = book_keeping_vars["policy_average_reward"]
             self.ppo_learner.cumulative_model_updates = book_keeping_vars["cumulative_model_updates"]
+            self.return_stats.from_json(book_keeping_vars["running_stats"])
             self.epoch = book_keeping_vars["epoch"]
             if "wandb_run_id" in book_keeping_vars.keys() and load_wandb:
                 self.wandb_run = wandb.init(settings=wandb.Settings(start_method="spawn"),

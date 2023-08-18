@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import functools
 import os
+import json
 
 
 class WelfordRunningStat(object):
@@ -111,26 +112,28 @@ class WelfordRunningStat(object):
         self.running_variance = np.reshape(other_var, self.shape)
         self.count = other_count
 
+    def to_json(self):
+        return {"mean":self.running_mean.ravel().tolist(),
+                "var":self.running_variance.ravel().tolist(),
+                "shape":np.shape(self.running_mean),
+                "count":self.count}
+
+    def from_json(self, other_json):
+        shape = other_json["shape"]
+        self.count = other_json["count"]
+        self.running_mean = np.asarray(other_json["mean"]).reshape(shape)
+        self.running_variance = np.asarray(other_json["var"]).reshape(shape)
+        print("LOADED RUNNING STATS FROM JSON",self.running_mean, self.running_variance, self.count)
+
     def save(self, directory):
-        full_path = os.path.join(directory, "RUNNING_STATS.dat")
+        full_path = os.path.join(directory, "RUNNING_STATS.json")
         with open(full_path, 'w') as f:
-            shape = np.shape(self.ones)
-            s = ''.join(["{} ".format(x) for x in shape])
-            mean = ''.join(["{} ".format(x) for x in self.running_mean.ravel()])
-            var = ''.join(["{} ".format(x) for x in self.running_variance.ravel()])
-            f.write("{}\n{}\n{}\n{}".format(s, mean, var, self.count))
+            json_data = self.to_json()
+            json.dump(obj=json_data, fp=f, indent=4)
 
     def load(self, directory):
-        full_path = os.path.join(directory, "RUNNING_STATS.dat")
+        full_path = os.path.join(directory, "RUNNING_STATS.json")
         with open(full_path, 'r') as f:
-            lines = f.readlines()
-            s = lines[0][:-1]
-            mean = lines[1][:-1]
-            var = lines[2][:-1]
-            count = lines[3]
-
-            shape = [int(x) for x in s.split(" ")]
-            self.running_mean = np.reshape([float(x) for x in mean.split(" ")], shape)
-            self.running_variance = np.reshape([float(x) for x in var.split(" ")], shape)
-            self.count = int(count)
+            json_data = dict(json.load(f))
+            self.from_json(json_data)
 
