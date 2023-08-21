@@ -1,12 +1,15 @@
-def batched_agent_process(pipe, seed):
+def batched_agent_process(pipe, seed, render, render_delay):
     """
     Function to interact with an environment and communicate with the learner through a pipe.
 
     :param pipe: A bidirectional communication pipe.
     :param seed: Seed for environment and action space randomization.
+    :param render: Whether the environment will be rendered every timestep.
+    :param render_delay: Amount of time in seconds to delay between steps while rendering.
     :return: None
     """
 
+    import time
     import gym
     env = None
 
@@ -38,6 +41,10 @@ def batched_agent_process(pipe, seed):
                 done = 1 if done else 0
 
                 pipe.send(("env_step_data", (obs, rew, done)))
+                if render:
+                    env.render()
+                    if render_delay is not None:
+                        time.sleep(render_delay)
 
             # If the learner is requesting obs and action space shapes, provide them.
             elif data[0] == "get_env_shapes":

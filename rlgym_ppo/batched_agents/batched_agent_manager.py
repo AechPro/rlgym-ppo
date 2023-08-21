@@ -69,8 +69,12 @@ class BatchedAgentManager(object):
             # will not necessarily be from the environments that we just sent actions to. Whatever timestep data happens
             # to be lying around in the buffer will be collected and used in the next inference step.
             self._send_actions()
-            while len(next_obs) < n_obs_per_inference:
-                n_collected += self._collect_responses(next_obs, next_pids)
+            n_collected_since_inference = 0
+            while n_collected_since_inference < n_obs_per_inference:
+                n_collected_right_now = self._collect_responses(next_obs, next_pids)
+
+                n_collected_since_inference += n_collected_right_now
+                n_collected += n_collected_right_now
 
             self.current_obs = next_obs
             self.current_pids = next_pids
@@ -223,13 +227,15 @@ class BatchedAgentManager(object):
 
         return obs_shape, action_shape, action_space_type
 
-    def init_processes(self, n_processes, build_env_fn, spawn_delay=None):
+    def init_processes(self, n_processes, build_env_fn, spawn_delay=None, render=False, render_delay=None):
         """
         Initialize and spawn environment processes.
 
-        :param n_processes: Number of processes to spawn .
+        :param n_processes: Number of processes to spawn.
         :param build_env_fn: A function to build the environment for each process.
         :param spawn_delay: Delay between spawning processes. Defaults to None.
+        :param render: Whether an environment should be rendered while collecting timesteps.
+        :param render_delay: A period in seconds to delay a process between frames while rendering.
         :return: A tuple containing observation shape, action shape, and action space type.
         """
 
@@ -238,8 +244,9 @@ class BatchedAgentManager(object):
         context = mp.get_context(start_method)
 
         for i in range(n_processes):
+            render_this_proc = i == 0 and render
             parent_end, child_end = context.Pipe()
-            process = context.Process(target=batched_agent_process, args=(child_end, self.seed+i))
+            process = context.Process(target=batched_agent_process, args=(child_end, self.seed+i, render_this_proc, render_delay))
             process.start()
             parent_end.send(("initialization_data", build_env_fn))
             self.processes[i] = (process, parent_end, child_end)

@@ -7,6 +7,7 @@ Description:
 """
 import torch.nn as nn
 import torch
+import numpy as np
 
 
 class ValueEstimator(nn.Module):
@@ -25,7 +26,10 @@ class ValueEstimator(nn.Module):
         self.model = nn.Sequential(*layers).to(self.device)
 
     def forward(self, x):
-        if type(x) != torch.Tensor:
+        t = type(x)
+        if t != torch.Tensor:
+            if t != np.array:
+                x = np.asarray(x)
             x = torch.as_tensor(x, dtype=torch.float32, device=self.device)
 
         return self.model(x)

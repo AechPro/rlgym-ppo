@@ -25,10 +25,12 @@ class Learner(object):
                  env_create_function,
                  n_proc=8,
                  min_inference_size=16,
+                 render=False,
+                 render_delay=None,
 
                  timestep_limit=5_000_000_000,
                  exp_buffer_size=500,
-                 ts_per_epoch=500,
+                 ts_per_iteration=500,
 
                  policy_layer_sizes=(256, 256, 256),
                  critic_layer_sizes=(256, 256, 256),
@@ -47,6 +49,7 @@ class Learner(object):
                  log_to_wandb=False,
                  load_wandb=True,
                  wandb_run=None,
+                 wandb_project_name=None,
                  wandb_group_name=None,
                  wandb_run_name=None,
 
@@ -83,7 +86,7 @@ class Learner(object):
         print("Using device {}".format(self.device))
         self.exp_buffer_size = exp_buffer_size
         self.timestep_limit = timestep_limit
-        self.ts_per_epoch = ts_per_epoch
+        self.ts_per_epoch = ts_per_iteration
         self.gae_lambda = gae_lambda
         self.gae_gamma = gae_gamma
         self.return_stats = WelfordRunningStat(1)
@@ -95,7 +98,9 @@ class Learner(object):
         self.agent = BatchedAgentManager(None, min_inference_size=min_inference_size, seed=random_seed)
         obs_space_size, act_space_size, action_space_type = self.agent.init_processes(n_processes=n_proc,
                                                                                       build_env_fn=env_create_function,
-                                                                                      spawn_delay=instance_launch_delay)
+                                                                                      spawn_delay=instance_launch_delay,
+                                                                                      render=render,
+                                                                                      render_delay=render_delay)
         obs_space_size = np.prod(obs_space_size)
         print("Initializing PPO...")
         self.ppo_learner = PPOLearner(obs_space_size,
@@ -118,7 +123,7 @@ class Learner(object):
         wandb_loaded = resume_from_checkpoint_folder is not None and self.load(resume_from_checkpoint_folder, load_wandb)
 
         if log_to_wandb and self.wandb_run is None and not wandb_loaded:
-            project = "rlgym-ppo"
+            project = "rlgym-ppo" if wandb_project_name is None else wandb_project_name
             group = "{}".format("unnamed-runs") if wandb_group_name is None else wandb_group_name
             run_name = "rlgym-ppo-run" if wandb_run_name is None else wandb_run_name
             print("Attempting to create new wandb run...")
@@ -253,7 +258,6 @@ class Learner(object):
 
         # Save all the things that need saving.
         self.ppo_learner.save_to(folder_path)
-
         book_keeping_vars = {"cumulative_timesteps":self.agent.cumulative_timesteps,
                              "cumulative_model_updates":self.ppo_learner.cumulative_model_updates,
                              "policy_average_reward":self.agent.average_reward,
