@@ -8,21 +8,25 @@ Description:
     the trajectories from each instance of the environment.
 """
 
+import multiprocessing as mp
+import time
 from multiprocessing.connection import PipeConnection
 from typing import Union
+
+import numpy as np
+import torch
+
 from rlgym_ppo.batched_agents import BatchedTrajectory
 from rlgym_ppo.batched_agents.batched_agent import batched_agent_process
-import numpy as np
-import time
-import multiprocessing as mp
-import torch
 
 
 class BatchedAgentManager(object):
     def __init__(self, policy, min_inference_size=8, seed=123):
         self.policy = policy
         self.seed = seed
-        self.processes:dict[int,tuple[mp.Process,PipeConnection,PipeConnection]] = {}
+        self.processes: dict[
+            int, tuple[mp.Process, PipeConnection, PipeConnection]
+        ] = {}
         self.current_obs = []
         self.current_pids = []
         self.average_reward = None
@@ -245,9 +249,9 @@ class BatchedAgentManager(object):
                 obs_shape, action_shape, action_space_type = data
                 done = True
 
-        obs_shape:Union[int,None]
-        action_shape:Union[int,None]
-        action_space_type:Union[str,None]
+        obs_shape: Union[int, None]
+        action_shape: Union[int, None]
+        action_space_type: Union[str, None]
         return obs_shape, action_shape, action_space_type
 
     def init_processes(
