@@ -1,4 +1,7 @@
-def batched_agent_process(pipe, seed, render, render_delay):
+from typing import Union
+
+
+def batched_agent_process(pipe, seed, render, render_delay: Union[float, None]):
     """
     Function to interact with an environment and communicate with the learner through a pipe.
 
