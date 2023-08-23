@@ -161,3 +161,4 @@ cython_debug/
 .sourcery.yaml
 rlgym-ppo.code-workspace
 .vscode/settings.json
+*.code-workspace

@@ -14,6 +14,7 @@ import os
 import random
 import shutil
 import time
+from typing import Union
 
 import numpy as np
 import torch
@@ -22,51 +23,52 @@ import wandb
 from rlgym_ppo.batched_agents import BatchedAgentManager
 from rlgym_ppo.ppo import ExperienceBuffer, PPOLearner
 from rlgym_ppo.util import WelfordRunningStat, reporting, torch_functions
+from rlgym_sim import gym
 
 
 class Learner(object):
     def __init__(
         # fmt: off
         self,
-        env_create_function,
-        n_proc=8,
-        min_inference_size=16,
-        render=False,
-        render_delay=None,
+        env_create_function: gym.Gym,
+        n_proc: int = 8,
+        min_inference_size: int = 16,
+        render: bool = False,
+        render_delay: float = 0,
 
-        timestep_limit=5_000_000_000,
-        exp_buffer_size=500,
-        ts_per_iteration=500,
+        timestep_limit: int = 5_000_000_000,
+        exp_buffer_size: int = 500,
+        ts_per_iteration: int = 500,
 
-        policy_layer_sizes=(256, 256, 256),
-        critic_layer_sizes=(256, 256, 256),
-        continuous_var_range=(0.1, 1.0),
+        policy_layer_sizes: tuple[int,...] = (256, 256, 256),
+        critic_layer_sizes: tuple[int,...] = (256, 256, 256),
+        continuous_var_range: tuple[float,...] = (0.1, 1.0),
 
-        ppo_epochs=10,
-        ppo_batch_size=500,
-        ppo_ent_coef=0.01,
-        ppo_clip_range=0.2,
+        ppo_epochs: int = 10,
+        ppo_batch_size: int = 500,
+        ppo_ent_coef: float = 0.01,
+        ppo_clip_range: float = 0.2,
 
-        gae_lambda=0.95,
-        gae_gamma=0.99,
-        policy_lr=3e-4,
-        critic_lr=3e-4,
+        gae_lambda: float = 0.95,
+        gae_gamma: float = 0.99,
+        policy_lr: float = 3e-4,
+        critic_lr: float = 3e-4,
 
-        log_to_wandb=False,
-        load_wandb=True,
-        wandb_run=None,
-        wandb_project_name=None,
-        wandb_group_name=None,
-        wandb_run_name=None,
+        log_to_wandb: bool = False,
+        load_wandb: bool = True,
+        wandb_run: Union[str,None] = None,
+        wandb_project_name: Union[str,None] = None,
+        wandb_group_name: Union[str,None] = None,
+        wandb_run_name: Union[str,None] = None,
 
-        checkpoints_save_folder=None,
-        checkpoint_load_folder=None,
-        save_every_ts=1_000_000,
+        checkpoints_save_folder: Union[str,None] = None,
+        checkpoint_load_folder: Union[str,None] = None,
+        save_every_ts: int = 1_000_000,
 
-        instance_launch_delay=None,
-        random_seed=123,
-        n_checkpoints_to_keep=5,
-        device="auto"
+        instance_launch_delay: Union[float,None] = None,
+        random_seed: int = 123,
+        n_checkpoints_to_keep: int = 5,
+        device: str = "auto"
         # fmt: on
     ):
         assert (
@@ -84,10 +86,10 @@ class Learner(object):
         random.seed(random_seed)
 
         self.n_checkpoints_to_keep = n_checkpoints_to_keep
-        self.save_folder = checkpoints_save_folder
+        self.checkpoints_save_folder = checkpoints_save_folder
         self.save_every_ts = save_every_ts
 
-        if device in ["auto", "gpu"] and torch.cuda.is_available():
+        if device in {"auto", "gpu"} and torch.cuda.is_available():
             self.device = "cuda:0"
         elif device == "auto" and not torch.cuda.is_available():
             self.device = "cpu"
@@ -289,17 +291,23 @@ class Learner(object):
         """
 
         # Make the file path to which the checkpoint will be saved
-        folder_path = os.path.join(self.save_folder, str(cumulative_timesteps))
+        folder_path = os.path.join(
+            self.checkpoints_save_folder, str(cumulative_timesteps)
+        )
         os.makedirs(folder_path, exist_ok=True)
 
         # Check to see if we've run out of checkpoint space and remove the oldest
         # checkpoints
         print(f"Saving checkpoint {cumulative_timesteps}...")
-        existing_checkpoints = [int(arg) for arg in os.listdir(self.save_folder)]
+        existing_checkpoints = [
+            int(arg) for arg in os.listdir(self.checkpoints_save_folder)
+        ]
         if len(existing_checkpoints) > self.n_checkpoints_to_keep:
             existing_checkpoints.sort()
             for checkpoint_name in existing_checkpoints[: -self.n_checkpoints_to_keep]:
-                shutil.rmtree(os.path.join(self.save_folder, str(checkpoint_name)))
+                shutil.rmtree(
+                    os.path.join(self.checkpoints_save_folder, str(checkpoint_name))
+                )
 
         os.makedirs(folder_path, exist_ok=True)
 
