@@ -19,11 +19,11 @@ from typing import Union
 import numpy as np
 import torch
 import wandb
+from rlgym_sim import gym
 
 from rlgym_ppo.batched_agents import BatchedAgentManager
 from rlgym_ppo.ppo import ExperienceBuffer, PPOLearner
 from rlgym_ppo.util import WelfordRunningStat, reporting, torch_functions
-from rlgym_sim import gym
 
 
 class Learner(object):
@@ -62,6 +62,7 @@ class Learner(object):
         wandb_run_name: Union[str,None] = None,
 
         checkpoints_save_folder: Union[str,None] = None,
+        add_unix_timestamp: bool = True,
         checkpoint_load_folder: Union[str,None] = None,
         save_every_ts: int = 1_000_000,
 
@@ -80,7 +81,11 @@ class Learner(object):
                 "data", "checkpoints", "rlgym-ppo-run"
             )
 
-        checkpoints_save_folder = f"{checkpoints_save_folder}-{time.time_ns()}"
+        # Add the option for the user to turn off the addition of Unix Timestamps to
+        # the ``checkpoints_save_folder`` path
+        if add_unix_timestamp:
+            checkpoints_save_folder = f"{checkpoints_save_folder}-{time.time_ns()}"
+
         torch.manual_seed(random_seed)
         np.random.seed(random_seed)
         random.seed(random_seed)
