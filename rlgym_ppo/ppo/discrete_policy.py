@@ -14,11 +14,13 @@ import numpy as np
 
 
 class DiscreteFF(nn.Module):
-    def __init__(self, input_shape, n_actions, layer_sizes, device):
+    def __init__(self, input_shape, n_actions, layer_sizes: tuple, device):
         super().__init__()
         self.device = device
 
-        assert len(layer_sizes) != 0, "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
+        assert (
+            len(layer_sizes) != 0
+        ), "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
         layers = [nn.Linear(input_shape, layer_sizes[0]), nn.ReLU()]
 
         for size in layer_sizes[1:]:

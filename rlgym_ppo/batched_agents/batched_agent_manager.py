@@ -8,6 +8,8 @@ Description:
     the trajectories from each instance of the environment.
 """
 
+from multiprocessing.connection import PipeConnection
+from typing import Union
 from rlgym_ppo.batched_agents import BatchedTrajectory
 from rlgym_ppo.batched_agents.batched_agent import batched_agent_process
 import numpy as np
@@ -20,7 +22,7 @@ class BatchedAgentManager(object):
     def __init__(self, policy, min_inference_size=8, seed=123):
         self.policy = policy
         self.seed = seed
-        self.processes = {}
+        self.processes:dict[int,tuple[mp.Process,PipeConnection,PipeConnection]] = {}
         self.current_obs = []
         self.current_pids = []
         self.average_reward = None
@@ -87,8 +89,14 @@ class BatchedAgentManager(object):
                 continue
 
             for traj in trajectories:
-                trajectory_states, trajectory_actions, trajectory_log_probs, \
-                trajectory_rewards, trajectory_next_states, trajectory_dones = traj
+                (
+                    trajectory_states,
+                    trajectory_actions,
+                    trajectory_log_probs,
+                    trajectory_rewards,
+                    trajectory_next_states,
+                    trajectory_dones,
+                ) = traj
                 trajectory_truncated = [0 for _ in range(len(trajectory_dones))]
                 trajectory_truncated[-1] = 1 if trajectory_dones[-1] == 0 else 0
                 states += trajectory_states
@@ -102,9 +110,19 @@ class BatchedAgentManager(object):
         self.cumulative_timesteps += n_collected
         t2 = time.perf_counter()
 
-        return (np.asarray(states), np.asarray(actions), np.asarray(log_probs),
-               np.asarray(rewards), np.asarray(next_states), np.asarray(dones),
-               np.asarray(truncated)), n_collected, t2 - t1
+        return (
+            (
+                np.asarray(states),
+                np.asarray(actions),
+                np.asarray(log_probs),
+                np.asarray(rewards),
+                np.asarray(next_states),
+                np.asarray(dones),
+                np.asarray(truncated),
+            ),
+            n_collected,
+            t2 - t1,
+        )
 
     def _sync_trajectories(self):
         for pid, trajectory in self.trajectory_map.items():
@@ -174,7 +192,9 @@ class BatchedAgentManager(object):
                         self.average_reward = self.ep_rews[proc_id][0]
                     else:
                         for ep_rew in self.ep_rews[proc_id]:
-                            self.average_reward = self.average_reward * 0.9 + ep_rew * 0.1
+                            self.average_reward = (
+                                self.average_reward * 0.9 + ep_rew * 0.1
+                            )
 
                     self.ep_rews[proc_id] = [0]
 
@@ -225,9 +245,19 @@ class BatchedAgentManager(object):
                 obs_shape, action_shape, action_space_type = data
                 done = True
 
+        obs_shape:Union[int,None]
+        action_shape:Union[int,None]
+        action_space_type:Union[str,None]
         return obs_shape, action_shape, action_space_type
 
-    def init_processes(self, n_processes, build_env_fn, spawn_delay=None, render=False, render_delay=None):
+    def init_processes(
+        self,
+        n_processes,
+        build_env_fn,
+        spawn_delay=None,
+        render=False,
+        render_delay: float = 0,
+    ):
         """
         Initialize and spawn environment processes.
 
@@ -246,7 +276,10 @@ class BatchedAgentManager(object):
         for i in range(n_processes):
             render_this_proc = i == 0 and render
             parent_end, child_end = context.Pipe()
-            process = context.Process(target=batched_agent_process, args=(child_end, self.seed+i, render_this_proc, render_delay))
+            process = context.Process(
+                target=batched_agent_process,
+                args=(child_end, self.seed + i, render_this_proc, render_delay),
+            )
             process.start()
             parent_end.send(("initialization_data", build_env_fn))
             self.processes[i] = (process, parent_end, child_end)
@@ -254,10 +287,11 @@ class BatchedAgentManager(object):
                 time.sleep(spawn_delay)
 
         self.ep_rews = {pid: [0] for pid in self.processes.keys()}
-        self.trajectory_map = {pid: BatchedTrajectory() for pid in self.processes.keys()}
+        self.trajectory_map = {
+            pid: BatchedTrajectory() for pid in self.processes.keys()
+        }
         self._get_initial_states()
         return self._get_env_shapes()
-
 
     def cleanup(self):
         """

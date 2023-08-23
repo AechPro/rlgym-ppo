@@ -1,4 +1,4 @@
-def batched_agent_process(pipe, seed, render, render_delay):
+def batched_agent_process(pipe, seed, render, render_delay: float):
     """
     Function to interact with an environment and communicate with the learner through a pipe.
 
@@ -43,7 +43,7 @@ def batched_agent_process(pipe, seed, render, render_delay):
                 pipe.send(("env_step_data", (obs, rew, done)))
                 if render:
                     env.render()
-                    if render_delay is not None:
+                    if render_delay != 0:
                         time.sleep(render_delay)
 
             # If the learner is requesting obs and action space shapes, provide them.
