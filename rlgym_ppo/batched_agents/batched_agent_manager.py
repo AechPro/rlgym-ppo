@@ -10,7 +10,6 @@ Description:
 
 import multiprocessing as mp
 import time
-from multiprocessing.connection import PipeConnection
 from typing import Union
 
 import numpy as np
@@ -24,9 +23,7 @@ class BatchedAgentManager(object):
     def __init__(self, policy, min_inference_size=8, seed=123):
         self.policy = policy
         self.seed = seed
-        self.processes: dict[
-            int, tuple[mp.Process, PipeConnection, PipeConnection]
-        ] = {}
+        self.processes = {}
         self.current_obs = []
         self.current_pids = []
         self.average_reward = None
