@@ -14,7 +14,7 @@ import os
 import random
 import shutil
 import time
-from typing import Union
+from typing import Callable, Union
 
 import numpy as np
 import torch
@@ -30,7 +30,7 @@ class Learner(object):
     def __init__(
         # fmt: off
         self,
-        env_create_function: gym.Gym,
+        env_create_function: Callable[...,gym.Gym],
         n_proc: int = 8,
         min_inference_size: int = 16,
         render: bool = False,
