@@ -14,22 +14,22 @@ import numpy as np
 
 
 class DiscreteFF(nn.Module):
-    def __init__(self, input_shape, n_actions, layer_sizes: tuple, device):
+    def __init__(self, input_shape, n_actions, layer_sizes, device):
         super().__init__()
         self.device = device
 
-        assert (
-            len(layer_sizes) != 0
-        ), "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
+        assert len(layer_sizes) != 0, "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
         layers = [nn.Linear(input_shape, layer_sizes[0]), nn.ReLU()]
-
+        prev_size = layer_sizes[0]
         for size in layer_sizes[1:]:
-            layers.append(nn.Linear(size, size))
+            layers.append(nn.Linear(prev_size, size))
             layers.append(nn.ReLU())
+            prev_size = size
 
         layers.append(nn.Linear(layer_sizes[-1], n_actions))
         layers.append(nn.Softmax(dim=-1))
         self.model = nn.Sequential(*layers).to(self.device)
+        self.n_actions = n_actions
 
     def get_output(self, obs):
         t = type(obs)
@@ -49,16 +49,15 @@ class DiscreteFF(nn.Module):
         :return: Chosen action and its logprob.
         """
 
-        probs = self.get_output(obs)
+        probs = self.get_output(obs).view(-1, self.n_actions)
         if deterministic:
-            return probs.cpu().numpy().argmax(), 0
+            return probs.cpu().numpy().argmax(), 1
 
-        distribution = Categorical(probs=probs)
+        probs = self.get_output(obs).view(-1, self.n_actions)
+        action = torch.multinomial(probs, 1, True)
+        log_prob = torch.log(probs).gather(-1, action)
 
-        action = distribution.sample()
-        log_prob = distribution.log_prob(action)
-
-        return action.cpu(), log_prob.cpu()
+        return action.flatten().cpu(), log_prob.flatten().cpu()
 
     def get_backprop_data(self, obs, acts):
         """
@@ -67,10 +66,11 @@ class DiscreteFF(nn.Module):
         :param acts: Actions taken by the policy.
         :return: Action log probs & entropy.
         """
-        acts = acts.flatten()
-        probs = self.get_output(obs)
-        distribution = Categorical(probs=probs)
-        entropy = distribution.entropy()
-        log_probs = distribution.log_prob(acts)
+        acts = acts.long()
+        probs = self.get_output(obs).view(-1, self.n_actions)
 
-        return log_probs.to(self.device), entropy.to(self.device).mean()
+        log_probs = torch.log(probs)
+        action_log_probs = log_probs.gather(-1, acts)
+        entropy = -(log_probs * probs).sum(dim=-1)
+
+        return action_log_probs.to(self.device), entropy.to(self.device).mean()

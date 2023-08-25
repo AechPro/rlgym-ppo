@@ -14,7 +14,7 @@ import os
 import random
 import shutil
 import time
-from typing import Callable, Union
+from typing import Callable, Union, Tuple
 
 import numpy as np
 import torch
@@ -37,16 +37,16 @@ class Learner(object):
         render_delay: float = 0,
 
         timestep_limit: int = 5_000_000_000,
-        exp_buffer_size: int = 500,
-        ts_per_iteration: int = 500,
+        exp_buffer_size: int = 100000,
+        ts_per_iteration: int = 50000,
 
-        policy_layer_sizes: tuple[int,...] = (256, 256, 256),
-        critic_layer_sizes: tuple[int,...] = (256, 256, 256),
-        continuous_var_range: tuple[float,...] = (0.1, 1.0),
+        policy_layer_sizes: Tuple[int,...] = (256, 256, 256),
+        critic_layer_sizes: Tuple[int,...] = (256, 256, 256),
+        continuous_var_range: Tuple[float,...] = (0.1, 1.0),
 
         ppo_epochs: int = 10,
-        ppo_batch_size: int = 500,
-        ppo_ent_coef: float = 0.01,
+        ppo_batch_size: int = 50000,
+        ppo_ent_coef: float = 0.005,
         ppo_clip_range: float = 0.2,
 
         gae_lambda: float = 0.95,
@@ -69,9 +69,7 @@ class Learner(object):
         instance_launch_delay: Union[float,None] = None,
         random_seed: int = 123,
         n_checkpoints_to_keep: int = 5,
-        device: str = "auto"
-        # fmt: on
-    ):
+        device: str = "auto"):
         assert (
             env_create_function is not None
         ), "MUST PROVIDE A FUNCTION TO CREATE RLGYM FUNCTIONS TO INITIALIZE RLGYM-PPO"
@@ -111,7 +109,7 @@ class Learner(object):
         self.epoch = 0
 
         self.experience_buffer = ExperienceBuffer(
-            self.exp_buffer_size, seed=random_seed, device=self.device
+            self.exp_buffer_size, seed=random_seed, device="cpu"
         )
 
         print("Initializing processes...")
@@ -205,7 +203,7 @@ class Learner(object):
             epoch_time = epoch_stop - epoch_start
 
             # Report variables we care about.
-            report |= ppo_report
+            report.update(ppo_report)
             if self.epoch < 1:
                 report["Value Function Loss"] = np.nan
 

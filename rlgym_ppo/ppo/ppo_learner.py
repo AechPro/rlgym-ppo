@@ -59,8 +59,8 @@ class PPOLearner(object):
         clip_fractions = []
 
         # Save parameters before computing any updates.
-        policy_before = torch.nn.utils.parameters_to_vector(self.policy.parameters())
-        critic_before = torch.nn.utils.parameters_to_vector(self.value_net.parameters())
+        policy_before = torch.nn.utils.parameters_to_vector(self.policy.parameters()).cpu()
+        critic_before = torch.nn.utils.parameters_to_vector(self.value_net.parameters()).cpu()
 
         t1 = time.time()
         for epoch in range(self.n_epochs):
@@ -68,20 +68,21 @@ class PPOLearner(object):
             # Get all shuffled batches from the experience buffer.
             batches = exp.get_all_batches_shuffled(self.batch_size)
             for batch in batches:
-                actions, old_log_probs, states, value_targets, advantages = batch
+                acts, old_probs, obs, target_values, advantages = batch
 
                 # Send everything to the device and enforce correct shapes.
-                acts = actions.view(self.batch_size, -1).to(self.device)
-                obs = states.to(self.device)
+                acts = acts.view(self.batch_size, -1).to(self.device)
+                obs = obs.to(self.device)
                 advantages = advantages.to(self.device)
-                old_probs = old_log_probs.view(-1).to(self.device)
-                target_values = value_targets.to(self.device)
+                old_probs = old_probs.to(self.device)
+                target_values = target_values.to(self.device)
 
                 # Compute value estimates.
                 vals = self.value_net(obs).view_as(target_values)
 
                 # Get policy log probs & entropy.
                 log_probs, entropy = self.policy.get_backprop_data(obs, acts)
+                log_probs = log_probs.view_as(old_probs)
 
                 # Compute PPO loss.
                 ratio = torch.exp(log_probs - old_probs)
@@ -133,8 +134,8 @@ class PPOLearner(object):
             mean_clip = np.mean(clip_fractions)
 
         # Compute magnitude of updates made to the policy and value estimator.
-        policy_after = torch.nn.utils.parameters_to_vector(self.policy.parameters())
-        critic_after = torch.nn.utils.parameters_to_vector(self.value_net.parameters())
+        policy_after = torch.nn.utils.parameters_to_vector(self.policy.parameters()).cpu()
+        critic_after = torch.nn.utils.parameters_to_vector(self.value_net.parameters()).cpu()
         policy_update_magnitude = (policy_before - policy_after).norm().item()
         critic_update_magnitude = (critic_before - critic_after).norm().item()
 

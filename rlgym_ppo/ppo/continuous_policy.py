@@ -19,6 +19,7 @@ import numpy as np
 import functools
 from rlgym_ppo.util import torch_functions
 
+
 class ContinuousPolicy(nn.Module):
     def __init__(self, input_shape, output_shape, layer_sizes, device, var_min=0.1, var_max=1.0):
         super().__init__()
@@ -29,9 +30,11 @@ class ContinuousPolicy(nn.Module):
         assert len(layer_sizes) != 0, "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
         layers = [nn.Linear(input_shape, layer_sizes[0]), nn.ReLU()]
 
+        prev_size = layer_sizes[0]
         for size in layer_sizes[1:]:
-            layers.append(nn.Linear(size, size))
+            layers.append(nn.Linear(prev_size, size))
             layers.append(nn.ReLU())
+            prev_size = size
 
         layers.append(nn.Linear(layer_sizes[-1], output_shape))
         layers.append(nn.Tanh())

@@ -38,6 +38,7 @@ class BatchedTrajectory(object):
                 self.action = [self.action]
                 self.log_prob = [self.log_prob]
                 self.reward = [self.reward]
+                self.state = self.state
                 self.done = self.done
 
             # Append timestep data to our sequence and reset all class attributes.
@@ -61,7 +62,7 @@ class BatchedTrajectory(object):
         trajectories = []
 
         # We are tracking data from a single match, not agent, so we will have n_agents number of trajectories in our list.
-        n_trajectories = self.complete_timesteps[0][0].shape[0]
+        n_trajectories = len(self.complete_timesteps[0][3])
 
         # For each trajectory we are tracking.
         for i in range(n_trajectories):
