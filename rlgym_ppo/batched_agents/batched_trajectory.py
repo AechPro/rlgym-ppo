@@ -65,6 +65,7 @@ class BatchedTrajectory(object):
 
         # We are tracking data from a single match, not agent, so we will have n_agents number of trajectories in our list.
         n_trajectories = len(self.complete_timesteps[0][3])
+        zeroes = np.zeros_like(self.complete_timesteps[0][0][0])
 
         # For each trajectory we are tracking.
         for i in range(n_trajectories):
@@ -77,11 +78,18 @@ class BatchedTrajectory(object):
 
             # Acquire all the timesteps from the current trajectory and append them to our lists.
             for timestep in self.complete_timesteps:
-                state, action, log_prob, reward, next_state, done = timestep
+                state, action, log_prob, reward, next_trajectory_state, done = timestep
+
+                # if the team size has changed insert dummy data into the next state
+                if i >= len(next_trajectory_state):
+                    next_state = zeroes
+                else:
+                    next_state = next_trajectory_state[i]
+
                 states.append(state[i])
                 actions.append(action[i])
                 log_probs.append(log_prob[i])
-                next_states.append(next_state[i])
+                next_states.append(next_state)
                 dones.append(done)
                 rewards.append(reward[i])
 

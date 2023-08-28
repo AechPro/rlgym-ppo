@@ -203,22 +203,26 @@ class BatchedAgentManager(object):
             message = message[comm_consts.HEADER_LEN:]
 
             if header[0] == comm_consts.ENV_STEP_DATA_HEADER[0]:
-                done = message[0]
-                n_elements_in_state_shape = int(message[1])
-                state_shape = [int(arg) for arg in message[2:2 + n_elements_in_state_shape]]
+                prev_n_agents = int(message[0])
+                done = message[1]
+                n_elements_in_state_shape = int(message[2])
                 if n_elements_in_state_shape == 1:
-                    n_agents = 1
-                    state_shape = [1, state_shape[0]]
+                    state_shape = [1, int(message[3])]
                 else:
-                    n_agents = state_shape[0]
+                    state_shape = [int(arg) for arg in message[3:3 + n_elements_in_state_shape]]
 
-                rew_start = 2 + n_elements_in_state_shape
-                rews = message[rew_start:rew_start + n_agents]
-                next_observation = np.reshape(message[rew_start + n_agents:], state_shape)
+                rew_start = 3 + n_elements_in_state_shape
 
-                if n_agents > 1:
-                    n_collected += n_agents
-                    for i in range(n_agents):
+                rew_end = rew_start + prev_n_agents
+
+                rews = message[rew_start:rew_end]
+
+                # print("got step data", state_shape, n_agents, prev_n_agents, len(rews), message[:16].tolist())
+                next_observation = np.reshape(message[rew_end:], state_shape)
+
+                if prev_n_agents > 1:
+                    n_collected += prev_n_agents
+                    for i in range(prev_n_agents):
                         if i >= len(ep_rews[proc_id]):
                             ep_rews[proc_id].append(rews[i])
                         else:

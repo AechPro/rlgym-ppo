@@ -231,7 +231,7 @@ class Learner(object):
             ppo_report.clear()
 
             # Save if we've reached the next checkpoint timestep.
-            if self.ts_since_last_save > self.save_every_ts:
+            if self.ts_since_last_save >= self.save_every_ts:
                 self.save(self.agent.cumulative_timesteps)
                 self.ts_since_last_save = 0
 

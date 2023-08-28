@@ -57,6 +57,8 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
     pack = struct.pack
     frombuffer = np.frombuffer
 
+    prev_n_agents = n_agents
+
     # Primary interaction loop.
     try:
         while True:
@@ -66,6 +68,7 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
             header = message[:header_len]
 
             if header[0] == POLICY_ACTIONS_HEADER[0]:
+                prev_n_agents = n_agents
                 data = message[header_len:]
 
                 if action_buffer is None:
@@ -75,12 +78,20 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
                     for i in range(int(n_agents)):
                         action_buffer[i] = data[i*action_slice_size:(i+1)*action_slice_size]
 
+                # print("got actions", action_buffer.shape,"|",n_agents,"|",prev_n_agents)
                 obs, rew, done, _ = env.step(action_buffer)
+
                 if n_agents == 1:
                     rew = [float(rew)]
+
                 if done:
                     obs = np.asarray(env.reset(), dtype=np.float32)
                     n_agents = float(obs.shape[0]) if len(obs.shape) > 1 else 1
+
+                    state_shape = [float(arg) for arg in obs.shape]
+                    n_elements_in_state_shape = len(state_shape)
+
+                    action_buffer = np.zeros((int(n_agents), action_buffer.shape[-1]))
 
                 if type(obs) != np.ndarray:
                     obs = np.asarray(obs, dtype=np.float32)
@@ -90,8 +101,8 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
                 done = 1. if done else 0.
 
                 obs_buffer = obs.tobytes()
-                [done, n_elements_in_state_shape] + state_shape + rew
-                message_floats = [done, n_elements_in_state_shape] + state_shape + rew
+                message_floats = [prev_n_agents, done, n_elements_in_state_shape] + state_shape + rew
+                # print("transmitting",obs.shape, n_agents)
                 packed = pack("%sf" % len(message_floats), *message_floats)
 
                 pipe.send_bytes(PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer)
