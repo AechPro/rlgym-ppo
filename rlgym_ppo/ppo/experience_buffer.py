@@ -115,7 +115,6 @@ class ExperienceBuffer(object):
         # Check the difference between the length of our experience buffer and the maximum allowed length.
         start = len(self.actions) - self.max_size
         if start > 0:
-
             # Remove the oldest entries until our buffer reaches its maximum allowed size (FIFO).
             self.actions = self.actions[start:]
             self.log_probs = self.log_probs[start:]
@@ -125,6 +124,7 @@ class ExperienceBuffer(object):
             self.dones = self.dones[start:]
             self.values = self.values[start:]
             self.advantages = self.advantages[start:]
+
 
     def clear(self):
         """

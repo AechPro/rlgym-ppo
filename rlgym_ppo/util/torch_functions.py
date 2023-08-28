@@ -47,7 +47,6 @@ def compute_gae(rews, dones, truncated, values, gamma=0.99, lmbda=0.95, return_s
     :param return_std: Standard deviation of the returns (used for reward normalization).
     :return: Bootstrapped value function estimates, GAE results, returns.
     """
-
     next_values = values[1:]
     terminal = dones
 
@@ -77,7 +76,6 @@ def compute_gae(rews, dones, truncated, values, gamma=0.99, lmbda=0.95, return_s
 
     advantages = torch.as_tensor(adv, dtype=torch.float32)
     values = torch.as_tensor([v + a for v, a in zip(values[:-1], adv)], dtype=torch.float32)
-    returns = returns
     return values, advantages, returns
 
 

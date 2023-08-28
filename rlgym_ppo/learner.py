@@ -46,6 +46,7 @@ class Learner(object):
 
         ppo_epochs: int = 10,
         ppo_batch_size: int = 50000,
+        ppo_minibatch_size: Union[int, None] = None,
         ppo_ent_coef: float = 0.005,
         ppo_clip_range: float = 0.2,
 
@@ -126,11 +127,15 @@ class Learner(object):
         )
         obs_space_size = np.prod(obs_space_size)
         print("Initializing PPO...")
+        if ppo_minibatch_size is None:
+            ppo_minibatch_size = ppo_batch_size
+
         self.ppo_learner = PPOLearner(
             obs_space_size,
             act_space_size,
             device=self.device,
             batch_size=ppo_batch_size,
+            mini_batch_size=ppo_minibatch_size,
             n_epochs=ppo_epochs,
             continuous_var_range=continuous_var_range,
             policy_type=action_space_type,
@@ -230,6 +235,9 @@ class Learner(object):
             report.clear()
             ppo_report.clear()
 
+            if "cuda" in self.device:
+                torch.cuda.empty_cache()
+
             # Save if we've reached the next checkpoint timestep.
             if self.ts_since_last_save >= self.save_every_ts:
                 self.save(self.agent.cumulative_timesteps)
@@ -259,7 +267,7 @@ class Learner(object):
         val_inp[-1] = next_states[-1]
 
         # Predict the expected returns at each state.
-        val_preds = value_net(val_inp).flatten().tolist()
+        val_preds = value_net(val_inp).cpu().flatten().tolist()
 
         # Compute the desired reinforcement learning quantities.
         value_targets, advantages, returns = torch_functions.compute_gae(

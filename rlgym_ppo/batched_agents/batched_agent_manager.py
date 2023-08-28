@@ -25,7 +25,11 @@ class BatchedAgentManager(object):
         self.policy = policy
         self.seed = seed
         self.processes = {}
-        self.current_obs = []
+
+        self.next_obs = {}
+        self.current_obs = {}
+
+        # self.current_obs = []
         self.current_pids = []
         self.average_reward = None
         self.cumulative_timesteps = 0
@@ -76,11 +80,17 @@ class BatchedAgentManager(object):
             # Send actions for the current observations and collect new states to act on. Note that the next states
             # will not necessarily be from the environments that we just sent actions to. Whatever timestep data happens
             # to be lying around in the buffer will be collected and used in the next inference step.
+
             self._send_actions()
             n_collected += self._collect_responses(next_obs, next_pids, n_obs_per_inference)
 
-            self.current_obs = next_obs
-            self.current_pids = next_pids
+            # self.current_obs = next_obs
+            # self.current_pids = next_pids
+            for pid in self.current_pids:
+                if self.next_obs[pid] is not None:
+                    self.current_pids[pid] = self.next_obs[pid]
+                    self.next_obs[pid] = None
+
             self._sync_trajectories()
 
         # Organize our new timesteps into the appropriate lists.
@@ -140,35 +150,48 @@ class BatchedAgentManager(object):
         """
         Send actions to environment processes based on current observations.
         """
-        if self.current_obs is None:
+        if len(self.current_pids) == 0:
             return
 
         dimensions = []
-        for i in range(len(self.current_obs)):
-            dimensions.append(self.current_obs[i].shape[0])
+        obs, pids = [], []
+        for pid in self.current_pids:
+            o = self.current_obs[pid]
+            if o is None:
+                continue
 
-        inference_batch = np.concatenate(self.current_obs, axis=0)
+            obs.append(o)
+            pids.append(pid)
+            dimensions.append(o.shape[0])
+
+        if len(dimensions) == 0:
+            return
+
+        inference_batch = np.concatenate(obs, axis=0)
+        # print("stacked obs for inference",np.shape(self.current_obs),"->", np.shape(inference_batch),"dims:", dimensions)
         actions, log_probs = self.policy.get_action(inference_batch)
         actions = actions.numpy().astype(np.float32)
 
         step = 0
-        for proc_id, dim_0 in zip(self.current_pids, dimensions):
+        for proc_id, dim_0 in zip(pids, dimensions):
             process, parent_end, child_end = self.processes[proc_id]
             stop = step+dim_0
 
             state = inference_batch[step:stop]
             action = actions[step:stop]
             logp = log_probs[step:stop]
+            # print(proc_id," | ", dim_0)
+            # print("sending actions",action.shape,"for state",state.shape,"and dim",dim_0)
 
             parent_end.send_bytes(comm_consts.pack_message(comm_consts.POLICY_ACTIONS_HEADER) + action.tobytes())
-
             self.trajectory_map[proc_id].action = action
             self.trajectory_map[proc_id].log_prob = logp
             self.trajectory_map[proc_id].state = state
 
             step += dim_0
 
-        self.current_obs = None
+        self.current_pids = []
+        # self.current_obs = None
 
     def _collect_responses(self, next_obs, next_pids, n_obs_per_inference):
         """
@@ -184,6 +207,7 @@ class BatchedAgentManager(object):
         trajectory_map = self.trajectory_map
         ep_rews = self.ep_rews
         n_procs = self.n_procs
+        self.current_pids = []
         
         while n_collected < n_obs_per_inference:
             proc_package = processes[buffer_ptr]
@@ -212,12 +236,10 @@ class BatchedAgentManager(object):
                     state_shape = [int(arg) for arg in message[3:3 + n_elements_in_state_shape]]
 
                 rew_start = 3 + n_elements_in_state_shape
-
                 rew_end = rew_start + prev_n_agents
-
                 rews = message[rew_start:rew_end]
 
-                # print("got step data", state_shape, n_agents, prev_n_agents, len(rews), message[:16].tolist())
+                # print("got step data", state_shape, state_shape[0], prev_n_agents, len(rews), message[:16].tolist())
                 next_observation = np.reshape(message[rew_end:], state_shape)
 
                 if prev_n_agents > 1:
@@ -241,8 +263,7 @@ class BatchedAgentManager(object):
 
                     ep_rews[proc_id] = [0]
 
-                next_obs.append(next_observation)
-                next_pids.append(proc_id)
+                self.current_pids.append(proc_id)
                 trajectory_map[proc_id].reward = rews
                 trajectory_map[proc_id].next_state = next_observation
                 trajectory_map[proc_id].done = done
@@ -257,7 +278,7 @@ class BatchedAgentManager(object):
         :return: None.
         """
 
-        self.current_obs = []
+        # self.current_obs = []
         self.current_pids = []
         for proc_id, proc_package in self.processes.items():
             process, parent_end, child_end = proc_package
@@ -279,7 +300,9 @@ class BatchedAgentManager(object):
                     shape = [1, shape[0]]
 
                 obs = np.reshape(data[1+n_elements_in_state_shape:], shape)
-                self.current_obs.append(obs)
+                # self.current_obs.append(obs)
+                self.current_obs[proc_id] = obs
+
 
     def _get_env_shapes(self):
         """
@@ -342,13 +365,14 @@ class BatchedAgentManager(object):
             process.start()
             parent_end.send(("initialization_data", build_env_fn))
             self.processes[i] = (process, parent_end, child_end)
+            self.ep_rews[i] = [0]
+            self.trajectory_map[i] = BatchedTrajectory()
+            self.current_obs[i] = None
+            self.next_obs[i] = None
+
             if spawn_delay is not None:
                 time.sleep(spawn_delay)
 
-        self.ep_rews = {pid: [0] for pid in self.processes.keys()}
-        self.trajectory_map = {
-            pid: BatchedTrajectory() for pid in self.processes.keys()
-        }
         self._get_initial_states()
         return self._get_env_shapes()
 
