@@ -32,7 +32,7 @@ class Learner(object):
         self,
         env_create_function: Callable[...,gym.Gym],
         n_proc: int = 8,
-        min_inference_size: int = 16,
+        min_inference_size: int = 80,
         render: bool = False,
         render_delay: float = 0,
 
@@ -91,6 +91,7 @@ class Learner(object):
         self.n_checkpoints_to_keep = n_checkpoints_to_keep
         self.checkpoints_save_folder = checkpoints_save_folder
         self.save_every_ts = save_every_ts
+        self.ts_since_last_save = 0
 
         if device in {"auto", "gpu"} and torch.cuda.is_available():
             self.device = "cuda:0"
@@ -214,6 +215,8 @@ class Learner(object):
             report["Timestep Consumption Time"] = epoch_time - collection_time
             report["Collected Steps per Second"] = steps_collected / collection_time
             report["Overall Steps per Second"] = steps_collected / epoch_time
+
+            self.ts_since_last_save += steps_collected
             if self.agent.average_reward is not None:
                 report["Policy Reward"] = self.agent.average_reward
             else:
@@ -228,11 +231,11 @@ class Learner(object):
             ppo_report.clear()
 
             # Save if we've reached the next checkpoint timestep.
-            if self.epoch * self.ts_per_epoch % self.save_every_ts == 0:
-                self.save(int(round(self.epoch * self.ts_per_epoch)))
+            if self.ts_since_last_save > self.save_every_ts == 0:
+                self.save(self.agent.cumulative_timesteps)
+                self.ts_since_last_save = 0
 
             self.epoch += 1
-        self.cleanup()
 
     @torch.no_grad()
     def add_new_experience(self, experience):
@@ -270,7 +273,9 @@ class Learner(object):
         )
 
         # Update the running statistics about the returns.
-        self.return_stats.increment(returns, len(returns))
+        n_to_increment = min(25, len(returns))
+
+        self.return_stats.increment(returns[:n_to_increment], n_to_increment)
 
         # Add our new experience to the buffer.
         self.experience_buffer.submit_experience(
@@ -321,6 +326,7 @@ class Learner(object):
             "cumulative_model_updates": self.ppo_learner.cumulative_model_updates,
             "policy_average_reward": self.agent.average_reward,
             "epoch": self.epoch,
+            "ts_since_last_save": self.ts_since_last_save,
             "running_stats": self.return_stats.to_json(),
         }
 
@@ -363,6 +369,14 @@ class Learner(object):
             ]
             self.return_stats.from_json(book_keeping_vars["running_stats"])
             self.epoch = book_keeping_vars["epoch"]
+
+            # check here for backwards compatibility
+            # TODO: remove this later.
+            if "ts_since_last_save" in book_keeping_vars.keys():
+                self.ts_since_last_save = book_keeping_vars["ts_since_last_save"]
+            else:
+                self.ts_since_last_save = abs(self.epoch*self.ts_per_epoch - self.agent.cumulative_timesteps)
+
             if "wandb_run_id" in book_keeping_vars and load_wandb:
                 self.wandb_run = wandb.init(
                     settings=wandb.Settings(start_method="spawn"),

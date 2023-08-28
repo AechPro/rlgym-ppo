@@ -24,7 +24,6 @@ class BatchedTrajectory(object):
         Function to check if the current timestep data is ready to be appended to the sequence we are tracking.
         :return: None.
         """
-
         # If every class attribute is populated
         if self.state is not None and\
            self.action is not None and\
@@ -35,20 +34,23 @@ class BatchedTrajectory(object):
 
             # If there is only a single agent in the match, create a list out of the scalar values.
             if type(self.reward) not in (list, tuple, np.ndarray):
-                self.action = [self.action]
-                self.log_prob = [self.log_prob]
                 self.reward = [self.reward]
-                self.state = self.state
-                self.done = self.done
 
             # Append timestep data to our sequence and reset all class attributes.
             self.complete_timesteps.append((self.state, self.action, self.log_prob, self.reward, self.next_state, self.done))
+            done = self.done
+
             self.state = None
             self.action = None
             self.log_prob = None
             self.reward = None
             self.next_state = None
             self.done = None
+
+            if done:
+                return True
+
+        return False
         
     def get_all(self):
         """

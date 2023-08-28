@@ -9,6 +9,9 @@ Description:
 
 import torch
 import numpy as np
+import locale
+locale.setlocale(locale.LC_ALL, '')
+
 
 def _form_printable_groups(report):
     """
@@ -38,8 +41,7 @@ def _form_printable_groups(report):
         {"Cumulative Model Updates": report["Cumulative Model Updates"],
          "Cumulative Timesteps": report["Cumulative Timesteps"]},
 
-        {"Timesteps Collected": report["Timesteps Collected"],
-         "PPO Iterations": report["PPO Iterations"]},
+        {"Timesteps Collected": report["Timesteps Collected"]},
               ]
 
     return groups
@@ -92,14 +94,21 @@ def dump_dict_to_debug_string(dictionary):
         if type(val) in (tuple, list, np.ndarray, np.array):
             arr_str = []
             for arg in val:
-                arr_str.append("{:7.5f},".format(arg) if type(arg) == float else "{},".format(arg))
+                arr_str.append(locale.format_string("%7.5f", arg, grouping=True) if type(arg) == float
+                               else "{},".format(arg))
+
             arr_str = ' '.join(arr_str)
             debug_string = "{}{}: [{}]\n".format(debug_string, key, arr_str[:-1])
 
         # Format floats such that only 5 decimal places are shown.
         elif type(val) in (float, np.float32, np.float64):
-            debug_string = "{}{}: {:7.5f}\n".format(debug_string, key, val)
 
+            debug_string = "{}{}: {}\n".format(debug_string, key, locale.format_string("%7.5f", val, grouping=True))
+
+        # Print ints with comma separated thousands (locale aware).
+        elif type(val) in (int, np.int32, np.int64):
+            print("found int",val)
+            debug_string = "{}{}: {}\n".format(debug_string, key, locale.format_string("%d", val, grouping=True))
         # Default to just printing the value if it isn't a type we know how to format.
         else:
             debug_string = "{}{}: {}\n".format(debug_string, key, val)

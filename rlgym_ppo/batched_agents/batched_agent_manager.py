@@ -17,6 +17,7 @@ import torch
 
 from rlgym_ppo.batched_agents import BatchedTrajectory
 from rlgym_ppo.batched_agents.batched_agent import batched_agent_process
+from rlgym_ppo.batched_agents import comm_consts
 
 
 class BatchedAgentManager(object):
@@ -32,6 +33,10 @@ class BatchedAgentManager(object):
         self.ep_rews = {}
         self.trajectory_map = {}
         self.prev_time = 0
+        self.completed_trajectories = []
+
+        self.buffer_ptr = 0
+        self.n_procs = 0
 
     def collect_timesteps(self, n):
         """
@@ -72,12 +77,7 @@ class BatchedAgentManager(object):
             # will not necessarily be from the environments that we just sent actions to. Whatever timestep data happens
             # to be lying around in the buffer will be collected and used in the next inference step.
             self._send_actions()
-            n_collected_since_inference = 0
-            while n_collected_since_inference < n_obs_per_inference:
-                n_collected_right_now = self._collect_responses(next_obs, next_pids)
-
-                n_collected_since_inference += n_collected_right_now
-                n_collected += n_collected_right_now
+            n_collected += self._collect_responses(next_obs, next_pids, n_obs_per_inference)
 
             self.current_obs = next_obs
             self.current_pids = next_pids
@@ -85,6 +85,10 @@ class BatchedAgentManager(object):
 
         # Organize our new timesteps into the appropriate lists.
         for pid, trajectory in self.trajectory_map.items():
+            self.completed_trajectories.append(trajectory)
+            self.trajectory_map[pid] = BatchedTrajectory()
+
+        for trajectory in self.completed_trajectories:
             trajectories = trajectory.get_all()
             if len(trajectories) == 0:
                 continue
@@ -127,7 +131,9 @@ class BatchedAgentManager(object):
 
     def _sync_trajectories(self):
         for pid, trajectory in self.trajectory_map.items():
-            trajectory.update()
+            if trajectory.update():
+                self.completed_trajectories.append(trajectory)
+                self.trajectory_map[pid] = BatchedTrajectory()
 
     @torch.no_grad()
     def _send_actions(self):
@@ -137,27 +143,34 @@ class BatchedAgentManager(object):
         if self.current_obs is None:
             return
 
-        if len(np.shape(self.current_obs)) == 2:
-            self.current_obs = np.expand_dims(self.current_obs, 1)
-        shape = np.shape(self.current_obs)
+        dimensions = []
+        for i in range(len(self.current_obs)):
+            dimensions.append(self.current_obs[i].shape[0])
 
-        actions, log_probs = self.policy.get_action(np.stack(self.current_obs, axis=1))
-        actions = actions.view((shape[0], shape[1], -1)).numpy()
-        log_probs = log_probs.view((shape[0], shape[1], -1)).numpy()
+        inference_batch = np.concatenate(self.current_obs, axis=0)
+        actions, log_probs = self.policy.get_action(inference_batch)
+        actions = actions.numpy().astype(np.float32)
 
-        for i in range(len(self.current_pids)):
-            state = np.asarray(self.current_obs[i])
-            action = actions[i]
-            log_prob = log_probs[i]
-            pid = self.current_pids[i]
+        step = 0
+        for proc_id, dim_0 in zip(self.current_pids, dimensions):
+            process, parent_end, child_end = self.processes[proc_id]
+            stop = step+dim_0
 
-            self.processes[pid][1].send(("action", action))
-            self.trajectory_map[pid].action = action
-            self.trajectory_map[pid].log_prob = log_prob
-            self.trajectory_map[pid].state = state
+            state = inference_batch[step:stop]
+            action = actions[step:stop]
+            logp = log_probs[step:stop]
+
+            parent_end.send_bytes(comm_consts.pack_message(comm_consts.POLICY_ACTIONS_HEADER) + action.tobytes())
+
+            self.trajectory_map[proc_id].action = action
+            self.trajectory_map[proc_id].log_prob = logp
+            self.trajectory_map[proc_id].state = state
+
+            step += dim_0
+
         self.current_obs = None
 
-    def _collect_responses(self, next_obs, next_pids):
+    def _collect_responses(self, next_obs, next_pids, n_obs_per_inference):
         """
         Collect responses from environment processes and update trajectory data.
         :param next_obs: List to store next observations.
@@ -166,43 +179,72 @@ class BatchedAgentManager(object):
         """
 
         n_collected = 0
-        for proc_id, proc_package in self.processes.items():
+        buffer_ptr = self.buffer_ptr
+        processes = self.processes
+        trajectory_map = self.trajectory_map
+        ep_rews = self.ep_rews
+        n_procs = self.n_procs
+        
+        while n_collected < n_obs_per_inference:
+            proc_package = processes[buffer_ptr]
+            proc_id = buffer_ptr
             process, parent_end, child_end = proc_package
+            
+            buffer_ptr += 1
+            if buffer_ptr >= n_procs:
+                buffer_ptr = 0
+                
             if not parent_end.poll():
                 continue
-            available_data = parent_end.recv()
-            header, data = available_data
 
-            if header == "env_step_data":
-                next_pids.append(proc_id)
-                next_observation, rew, done = data
+            available_data = parent_end.recv_bytes()
+            message = np.frombuffer(available_data, dtype=np.float32)
+            header = message[:comm_consts.HEADER_LEN]
+            message = message[comm_consts.HEADER_LEN:]
 
-                if type(rew) in (list, tuple, np.ndarray):
-                    n_collected += len(rew)
-                    for i in range(len(rew)):
-                        if i >= len(self.ep_rews[proc_id]):
-                            self.ep_rews[proc_id].append(rew[i])
+            if header[0] == comm_consts.ENV_STEP_DATA_HEADER[0]:
+                done = message[0]
+                n_elements_in_state_shape = int(message[1])
+                state_shape = [int(arg) for arg in message[2:2 + n_elements_in_state_shape]]
+                if n_elements_in_state_shape == 1:
+                    n_agents = 1
+                    state_shape = [1, state_shape[0]]
+                else:
+                    n_agents = state_shape[0]
+
+                rew_start = 2 + n_elements_in_state_shape
+                rews = message[rew_start:rew_start + n_agents]
+                next_observation = np.reshape(message[rew_start + n_agents:], state_shape)
+
+                if n_agents > 1:
+                    n_collected += n_agents
+                    for i in range(n_agents):
+                        if i >= len(ep_rews[proc_id]):
+                            ep_rews[proc_id].append(rews[i])
                         else:
-                            self.ep_rews[proc_id][i] += rew[i]
+                            ep_rews[proc_id][i] += rews[i]
                 else:
                     n_collected += 1
-                    self.ep_rews[proc_id][0] += rew
+                    rews = rews[0]
+                    ep_rews[proc_id][0] += rews
 
                 if done:
                     if self.average_reward is None:
                         self.average_reward = self.ep_rews[proc_id][0]
                     else:
                         for ep_rew in self.ep_rews[proc_id]:
-                            self.average_reward = (
-                                self.average_reward * 0.9 + ep_rew * 0.1
-                            )
+                            self.average_reward = self.average_reward * 0.9 + ep_rew * 0.1
 
-                    self.ep_rews[proc_id] = [0]
+                    ep_rews[proc_id] = [0]
 
                 next_obs.append(next_observation)
-                self.trajectory_map[proc_id].reward = rew
-                self.trajectory_map[proc_id].next_state = next_observation
-                self.trajectory_map[proc_id].done = done
+                next_pids.append(proc_id)
+                trajectory_map[proc_id].reward = rews
+                trajectory_map[proc_id].next_state = next_observation
+                trajectory_map[proc_id].done = done
+
+        self.buffer_ptr = buffer_ptr
+
         return n_collected
 
     def _get_initial_states(self):
@@ -218,38 +260,49 @@ class BatchedAgentManager(object):
             while not parent_end.poll():
                 time.sleep(0.01)
 
-            available_data = parent_end.recv()
-            header, data = available_data
-            if header == "reset_state":
+            available_data = parent_end.recv_bytes()
+            message = comm_consts.unpack_message(available_data)
+
+            header = message[:comm_consts.HEADER_LEN]
+            data = message[comm_consts.HEADER_LEN:]
+
+            if header == comm_consts.ENV_RESET_STATE_HEADER:
                 self.current_pids.append(proc_id)
-                self.current_obs.append(data)
+
+                n_elements_in_state_shape = int(data[0])
+                shape = [int(arg) for arg in data[1:1+n_elements_in_state_shape]]
+                if n_elements_in_state_shape == 1:
+                    shape = [1, shape[0]]
+
+                obs = np.reshape(data[1+n_elements_in_state_shape:], shape)
+                self.current_obs.append(obs)
 
     def _get_env_shapes(self):
         """
         Retrieve environment observation and action space shapes from one of the connected environment processes.
         :return: A tuple containing observation shape, action shape, and action space type.
         """
-
-        print("Requesting env shapes...")
         process, parent_end, child_end = self.processes[0]
-        parent_end.send(("get_env_shapes", None))
-        obs_shape, action_shape, action_space_type = None, None, None
+        request_msg = comm_consts.pack_message(comm_consts.ENV_SHAPES_HEADER)
+        parent_end.send_bytes(request_msg)
+
+        obs_shape, action_shape, action_space_type = -1, -1, -1
         done = False
 
         while not done:
             while not parent_end.poll():
                 time.sleep(0.1)
-            available_data = parent_end.recv()
-            header, data = available_data
-            if header == "env_shapes":
-                print("Received env shapes from child process")
+
+            available_data = parent_end.recv_bytes()
+            message = comm_consts.unpack_message(available_data)
+            header = message[:comm_consts.HEADER_LEN]
+            data = message[comm_consts.HEADER_LEN:]
+
+            if header == comm_consts.ENV_SHAPES_HEADER:
                 obs_shape, action_shape, action_space_type = data
                 done = True
 
-        obs_shape: Union[int, None]
-        action_shape: Union[int, None]
-        action_space_type: Union[str, None]
-        return obs_shape, action_shape, action_space_type
+        return int(obs_shape), int(action_shape), int(action_space_type)
 
     def init_processes(
         self,
@@ -273,13 +326,14 @@ class BatchedAgentManager(object):
         can_fork = "forkserver" in mp.get_all_start_methods()
         start_method = "forkserver" if can_fork else "spawn"
         context = mp.get_context(start_method)
+        self.n_procs = n_processes
 
         for i in range(n_processes):
             render_this_proc = i == 0 and render
             parent_end, child_end = context.Pipe()
             process = context.Process(
                 target=batched_agent_process,
-                args=(child_end, self.seed + i, render_this_proc, render_delay),
+                args=(i, child_end, self.seed + i, render_this_proc, render_delay),
             )
             process.start()
             parent_end.send(("initialization_data", build_env_fn))
@@ -301,9 +355,11 @@ class BatchedAgentManager(object):
         for proc_id, proc_package in self.processes.items():
             process, parent_end, child_end = proc_package
             try:
-                parent_end.send(("stop", None))
+                parent_end.send_bytes(comm_consts.pack_message(comm_consts.STOP_MESSAGE_HEADER))
             except:
+                import traceback
                 print("Failed to send stop signal to child process!")
+                traceback.print_exc()
             try:
                 parent_end.close()
             except:

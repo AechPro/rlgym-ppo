@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 from setuptools.command.install import install
 
 
-__version__ = "1.0.4"
+__version__ = "1.1.0"
 
 with open('README.md', 'r') as readme_file:
     long_description = readme_file.read()
