@@ -107,7 +107,6 @@ def dump_dict_to_debug_string(dictionary):
 
         # Print ints with comma separated thousands (locale aware).
         elif type(val) in (int, np.int32, np.int64):
-            print("found int",val)
             debug_string = "{}{}: {}\n".format(debug_string, key, locale.format_string("%d", val, grouping=True))
         # Default to just printing the value if it isn't a type we know how to format.
         else:
