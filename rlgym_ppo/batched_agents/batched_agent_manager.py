@@ -18,10 +18,11 @@ import torch
 from rlgym_ppo.batched_agents import BatchedTrajectory
 from rlgym_ppo.batched_agents.batched_agent import batched_agent_process
 from rlgym_ppo.batched_agents import comm_consts
+from rlgym_ppo.util import WelfordRunningStat
 
 
 class BatchedAgentManager(object):
-    def __init__(self, policy, min_inference_size=8, seed=123):
+    def __init__(self, policy, min_inference_size=8, seed=123, standardize_obs=True, steps_per_obs_stats_increment=5):
         self.policy = policy
         self.seed = seed
         self.processes = {}
@@ -34,6 +35,12 @@ class BatchedAgentManager(object):
         self.average_reward = None
         self.cumulative_timesteps = 0
         self.min_inference_size = min_inference_size
+
+        self.standardize_obs = standardize_obs
+        self.steps_per_obs_stats_increment = steps_per_obs_stats_increment
+        self.steps_since_obs_stats_update = 0
+        self.obs_stats = None
+
         self.ep_rews = {}
         self.trajectory_map = {}
         self.prev_time = 0
@@ -74,21 +81,19 @@ class BatchedAgentManager(object):
 
         # Collect n timesteps.
         while n_collected < n:
-            next_obs = []
-            next_pids = []
 
             # Send actions for the current observations and collect new states to act on. Note that the next states
             # will not necessarily be from the environments that we just sent actions to. Whatever timestep data happens
             # to be lying around in the buffer will be collected and used in the next inference step.
 
             self._send_actions()
-            n_collected += self._collect_responses(next_obs, next_pids, n_obs_per_inference)
+            n_collected += self._collect_responses(n_obs_per_inference)
 
             # self.current_obs = next_obs
             # self.current_pids = next_pids
             for pid in self.current_pids:
                 if self.next_obs[pid] is not None:
-                    self.current_pids[pid] = self.next_obs[pid]
+                    self.current_obs[pid] = self.next_obs[pid]
                     self.next_obs[pid] = None
 
             self._sync_trajectories()
@@ -168,6 +173,8 @@ class BatchedAgentManager(object):
             return
 
         inference_batch = np.concatenate(obs, axis=0)
+
+
         # print("stacked obs for inference",np.shape(self.current_obs),"->", np.shape(inference_batch),"dims:", dimensions)
         actions, log_probs = self.policy.get_action(inference_batch)
         actions = actions.numpy().astype(np.float32)
@@ -193,11 +200,9 @@ class BatchedAgentManager(object):
         self.current_pids = []
         # self.current_obs = None
 
-    def _collect_responses(self, next_obs, next_pids, n_obs_per_inference):
+    def _collect_responses(self, n_obs_per_inference):
         """
         Collect responses from environment processes and update trajectory data.
-        :param next_obs: List to store next observations.
-        :param next_pids: List to store process IDs.
         :return: Number of responses collected.
         """
 
@@ -208,6 +213,10 @@ class BatchedAgentManager(object):
         ep_rews = self.ep_rews
         n_procs = self.n_procs
         self.current_pids = []
+
+        if self.standardize_obs:
+            obs_mean = self.obs_stats.mean[0]
+            obs_std = self.obs_stats.std[0]
         
         while n_collected < n_obs_per_inference:
             proc_package = processes[buffer_ptr]
@@ -241,6 +250,17 @@ class BatchedAgentManager(object):
 
                 # print("got step data", state_shape, state_shape[0], prev_n_agents, len(rews), message[:16].tolist())
                 next_observation = np.reshape(message[rew_end:], state_shape)
+                if self.standardize_obs:
+                    if self.steps_since_obs_stats_update > self.steps_per_obs_stats_increment:
+                        self.obs_stats.increment(next_observation, state_shape[0])
+                        obs_mean = self.obs_stats.mean[0]
+                        obs_std = self.obs_stats.std[0]
+                        self.steps_since_obs_stats_update = 0
+                    else:
+                        self.steps_since_obs_stats_update += 1
+
+                    next_observation = np.clip((next_observation - obs_mean) / obs_std, a_min=-5, a_max=5)
+
 
                 if prev_n_agents > 1:
                     n_collected += prev_n_agents
@@ -264,6 +284,7 @@ class BatchedAgentManager(object):
                     ep_rews[proc_id] = [0]
 
                 self.current_pids.append(proc_id)
+                self.next_obs[proc_id] = next_observation
                 trajectory_map[proc_id].reward = rews
                 trajectory_map[proc_id].next_state = next_observation
                 trajectory_map[proc_id].done = done
@@ -300,6 +321,11 @@ class BatchedAgentManager(object):
                     shape = [1, shape[0]]
 
                 obs = np.reshape(data[1+n_elements_in_state_shape:], shape)
+                if self.standardize_obs:
+                    if self.obs_stats is None:
+                        self.obs_stats = WelfordRunningStat(shape=shape[-1])
+                    self.obs_stats.increment(obs, shape[0])
+
                 # self.current_obs.append(obs)
                 self.current_obs[proc_id] = obs
 

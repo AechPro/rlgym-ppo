@@ -64,7 +64,12 @@ def compute_gae(rews, dones, truncated, values, gamma=0.99, lmbda=0.95, return_s
             done = 1 - terminal[step + 1]
             trunc = 1 - truncated[step + 1]
 
-        pred_ret = rews[step]/return_std + gamma * next_values[step] * done
+        if return_std is not None:
+            norm_rew = min(max(rews[step] / return_std, -10), 10)
+        else:
+            norm_rew = rews[step]
+
+        pred_ret = norm_rew + gamma * next_values[step] * done
         delta = pred_ret - values[step]
         ret = rews[step] + last_return*gamma*done*trunc
         returns[step] = ret

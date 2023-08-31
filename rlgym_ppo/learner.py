@@ -39,6 +39,10 @@ class Learner(object):
         timestep_limit: int = 5_000_000_000,
         exp_buffer_size: int = 100000,
         ts_per_iteration: int = 50000,
+        standardize_returns: bool = True,
+        standardize_obs: bool = True,
+        max_returns_per_stats_increment: int = 150,
+        steps_per_obs_stats_increment: int = 5,
 
         policy_layer_sizes: Tuple[int,...] = (256, 256, 256),
         critic_layer_sizes: Tuple[int,...] = (256, 256, 256),
@@ -91,6 +95,9 @@ class Learner(object):
 
         self.n_checkpoints_to_keep = n_checkpoints_to_keep
         self.checkpoints_save_folder = checkpoints_save_folder
+        self.max_returns_per_stats_increment = max_returns_per_stats_increment
+
+        self.standardize_returns = standardize_returns
         self.save_every_ts = save_every_ts
         self.ts_since_last_save = 0
 
@@ -116,7 +123,9 @@ class Learner(object):
 
         print("Initializing processes...")
         self.agent = BatchedAgentManager(
-            None, min_inference_size=min_inference_size, seed=random_seed
+            None, min_inference_size=min_inference_size, seed=random_seed,
+            standardize_obs=standardize_obs,
+            steps_per_obs_stats_increment=steps_per_obs_stats_increment
         )
         obs_space_size, act_space_size, action_space_type = self.agent.init_processes(
             n_processes=n_proc,
@@ -270,6 +279,8 @@ class Learner(object):
         val_preds = value_net(val_inp).cpu().flatten().tolist()
 
         # Compute the desired reinforcement learning quantities.
+        ret_std = self.return_stats.std[0] if self.standardize_returns else None
+
         value_targets, advantages, returns = torch_functions.compute_gae(
             rewards,
             dones,
@@ -277,13 +288,14 @@ class Learner(object):
             val_preds,
             gamma=self.gae_gamma,
             lmbda=self.gae_lambda,
-            return_std=self.return_stats.std[0],
+            return_std=ret_std, # 1 by default if no standardization is requested
         )
 
-        # Update the running statistics about the returns.
-        n_to_increment = min(25, len(returns))
+        if self.standardize_returns:
+            # Update the running statistics about the returns.
+            n_to_increment = min(self.max_returns_per_stats_increment, len(returns))
 
-        self.return_stats.increment(returns[:n_to_increment], n_to_increment)
+            self.return_stats.increment(returns[:n_to_increment], n_to_increment)
 
         # Add our new experience to the buffer.
         self.experience_buffer.submit_experience(
@@ -329,14 +341,20 @@ class Learner(object):
 
         # Save all the things that need saving.
         self.ppo_learner.save_to(folder_path)
+
         book_keeping_vars = {
             "cumulative_timesteps": self.agent.cumulative_timesteps,
             "cumulative_model_updates": self.ppo_learner.cumulative_model_updates,
             "policy_average_reward": self.agent.average_reward,
             "epoch": self.epoch,
             "ts_since_last_save": self.ts_since_last_save,
-            "running_stats": self.return_stats.to_json(),
+            "reward_running_stats": self.return_stats.to_json(),
+
         }
+        if self.agent.standardize_obs:
+            book_keeping_vars["obs_running_stats"] = self.agent.obs_stats.to_json()
+        if self.standardize_returns:
+            book_keeping_vars["reward_running_stats"] = self.return_stats.to_json()
 
         if self.wandb_run is not None:
             book_keeping_vars["wandb_run_id"] = self.wandb_run.id
@@ -375,15 +393,17 @@ class Learner(object):
             self.ppo_learner.cumulative_model_updates = book_keeping_vars[
                 "cumulative_model_updates"
             ]
-            self.return_stats.from_json(book_keeping_vars["running_stats"])
+            self.return_stats.from_json(book_keeping_vars["reward_running_stats"])
+
+            if self.agent.standardize_obs and "obs_running_stats" in book_keeping_vars.keys():
+                self.agent.obs_stats = WelfordRunningStat(1)
+                self.agent.obs_stats.from_json(book_keeping_vars["obs_running_stats"])
+            if self.standardize_returns and "reward_running_stats" in book_keeping_vars.keys():
+                self.return_stats.from_json(book_keeping_vars["reward_running_stats"])
+
             self.epoch = book_keeping_vars["epoch"]
 
             # check here for backwards compatibility
-            # TODO: remove this later.
-            if "ts_since_last_save" in book_keeping_vars.keys():
-                self.ts_since_last_save = book_keeping_vars["ts_since_last_save"]
-            else:
-                self.ts_since_last_save = abs(self.epoch*self.ts_per_epoch - self.agent.cumulative_timesteps)
 
             if "wandb_run_id" in book_keeping_vars and load_wandb:
                 self.wandb_run = wandb.init(
