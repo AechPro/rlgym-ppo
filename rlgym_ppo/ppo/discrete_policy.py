@@ -29,6 +29,7 @@ class DiscreteFF(nn.Module):
         layers.append(nn.Linear(layer_sizes[-1], n_actions))
         layers.append(nn.Softmax(dim=-1))
         self.model = nn.Sequential(*layers).to(self.device)
+
         self.n_actions = n_actions
 
     def get_output(self, obs):
@@ -38,8 +39,7 @@ class DiscreteFF(nn.Module):
                 obs = np.asarray(obs)
             obs = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
 
-        policy_output = self.model(obs)
-        return policy_output
+        return self.model(obs)
 
     def get_action(self, obs, deterministic=False):
         """
@@ -49,11 +49,13 @@ class DiscreteFF(nn.Module):
         :return: Chosen action and its logprob.
         """
 
-        probs = self.get_output(obs).view(-1, self.n_actions)
+        probs = self.get_output(obs)
+        probs = probs.view(-1, self.n_actions)
+        probs = torch.clamp(probs, min=1e-11, max=1)
+
         if deterministic:
             return probs.cpu().numpy().argmax(), 1
 
-        probs = self.get_output(obs).view(-1, self.n_actions)
         action = torch.multinomial(probs, 1, True)
         log_prob = torch.log(probs).gather(-1, action)
 
@@ -67,7 +69,9 @@ class DiscreteFF(nn.Module):
         :return: Action log probs & entropy.
         """
         acts = acts.long()
-        probs = self.get_output(obs).view(-1, self.n_actions)
+        probs = self.get_output(obs)
+        probs = probs.view(-1, self.n_actions)
+        probs = torch.clamp(probs, min=1e-11, max=1)
 
         log_probs = torch.log(probs)
         action_log_probs = log_probs.gather(-1, acts)
