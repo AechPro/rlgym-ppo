@@ -129,6 +129,7 @@ class BatchedAgentManager(object):
 
         self.cumulative_timesteps += n_collected
         t2 = time.perf_counter()
+        self.completed_trajectories = []
 
         return (
             (
