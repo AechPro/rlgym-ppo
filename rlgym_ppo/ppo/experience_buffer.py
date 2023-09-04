@@ -13,6 +13,19 @@ import torch
 
 
 class ExperienceBuffer(object):
+    @staticmethod
+    def _cat(t1, t2, size):
+        if len(t2) >= size:
+            t = torch.cat((t2[len(t2) - size:],), 0)
+        elif len(t1) + len(t2) >= size:
+            t = torch.cat((t1[len(t2) - size:], t2), 0)
+        else:
+            t = torch.cat((t1, t2), 0)
+
+        del t1
+        del t2
+        return t
+
     def __init__(self, max_size, seed, device):
         self.device = device
         self.seed = seed
@@ -27,6 +40,7 @@ class ExperienceBuffer(object):
         self.advantages = torch.FloatTensor().to(self.device)
         self.max_size = max_size
         self.rng = np.random.RandomState(seed)
+
 
     def submit_experience(self, states, actions, log_probs, rewards, next_states, dones, truncated, values, advantages):
         """
@@ -45,16 +59,17 @@ class ExperienceBuffer(object):
         :return: None
         """
 
-        self.states = torch.cat((self.states, torch.as_tensor(states, dtype=torch.float32, device=self.device)), 0)
-        self.actions = torch.cat((self.actions, torch.as_tensor(actions, dtype=torch.float32, device=self.device)), 0)
-        self.log_probs = torch.cat((self.log_probs, torch.as_tensor(log_probs, dtype=torch.float32, device=self.device)), 0)
-        self.rewards = torch.cat((self.rewards, torch.as_tensor(rewards, dtype=torch.float32, device=self.device)), 0)
-        self.next_states = torch.cat((self.next_states, torch.as_tensor(next_states, dtype=torch.float32, device=self.device)), 0)
-        self.dones = torch.cat((self.dones, torch.as_tensor(dones, dtype=torch.float32, device=self.device)), 0)
-        self.truncated = torch.cat((self.truncated, torch.as_tensor(truncated, dtype=torch.float32, device=self.device)), 0)
-        self.values = torch.cat((self.values, torch.as_tensor(values, dtype=torch.float32, device=self.device)), 0)
-        self.advantages = torch.cat((self.advantages, torch.as_tensor(advantages, dtype=torch.float32, device=self.device)), 0)
-        self._clamp_size()
+
+        _cat = ExperienceBuffer._cat
+        self.states = _cat(self.states, torch.as_tensor(states, dtype=torch.float32, device=self.device), self.max_size)
+        self.actions = _cat(self.actions, torch.as_tensor(actions, dtype=torch.float32, device=self.device), self.max_size)
+        self.log_probs = _cat(self.log_probs, torch.as_tensor(log_probs, dtype=torch.float32, device=self.device), self.max_size)
+        self.rewards = _cat(self.rewards, torch.as_tensor(rewards, dtype=torch.float32, device=self.device), self.max_size)
+        self.next_states = _cat(self.next_states, torch.as_tensor(next_states, dtype=torch.float32, device=self.device), self.max_size)
+        self.dones = _cat(self.dones, torch.as_tensor(dones, dtype=torch.float32, device=self.device), self.max_size)
+        self.truncated = _cat(self.truncated, torch.as_tensor(truncated, dtype=torch.float32, device=self.device), self.max_size)
+        self.values = _cat(self.values, torch.as_tensor(values, dtype=torch.float32, device=self.device), self.max_size)
+        self.advantages = _cat(self.advantages, torch.as_tensor(advantages, dtype=torch.float32, device=self.device), self.max_size)
 
     def get_all_batches_shuffled(self, batch_size):
         """
@@ -105,26 +120,6 @@ class ExperienceBuffer(object):
 
         # Return the list of shuffled batches.
         return batches
-
-    def _clamp_size(self):
-        """
-        Function to clamp the size of the experience buffer.
-        :return: None.
-        """
-
-        # Check the difference between the length of our experience buffer and the maximum allowed length.
-        start = len(self.actions) - self.max_size
-        if start > 0:
-            # Remove the oldest entries until our buffer reaches its maximum allowed size (FIFO).
-            self.actions = self.actions[start:]
-            self.log_probs = self.log_probs[start:]
-            self.rewards = self.rewards[start:]
-            self.states = self.states[start:]
-            self.next_states = self.next_states[start:]
-            self.dones = self.dones[start:]
-            self.values = self.values[start:]
-            self.advantages = self.advantages[start:]
-
 
     def clear(self):
         """
