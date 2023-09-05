@@ -17,6 +17,7 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
     import struct
     from rlgym_ppo.batched_agents import comm_consts
     env = None
+    metrics_encoding_function = None
 
     POLICY_ACTIONS_HEADER = comm_consts.POLICY_ACTIONS_HEADER
     ENV_SHAPES_HEADER = comm_consts.ENV_SHAPES_HEADER
@@ -30,6 +31,7 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
         data = pipe.recv()
         if data[0] == "initialization_data":
             build_env_fn = data[1]
+            metrics_encoding_function = data[2]
 
             env = build_env_fn()
 
@@ -79,7 +81,7 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
                         action_buffer[i] = data[i*action_slice_size:(i+1)*action_slice_size]
 
                 # print("got actions", action_buffer.shape,"|",n_agents,"|",prev_n_agents)
-                obs, rew, done, _ = env.step(action_buffer)
+                obs, rew, done, info = env.step(action_buffer)
 
                 if n_agents == 1:
                     rew = [float(rew)]
@@ -101,11 +103,21 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
                 done = 1. if done else 0.
 
                 obs_buffer = obs.tobytes()
-                message_floats = [prev_n_agents, done, n_elements_in_state_shape] + state_shape + rew
-                # print("transmitting",obs.shape, n_agents)
-                packed = pack("%sf" % len(message_floats), *message_floats)
 
-                pipe.send_bytes(PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer)
+                if metrics_encoding_function is not None:
+                    metrics = metrics_encoding_function(info["state"])
+                    metrics_shape = [float(arg) for arg in metrics.shape]
+                    metrics_bytes = metrics.tobytes()
+
+                    message_floats = [prev_n_agents, done, n_elements_in_state_shape, len(metrics_shape)] + metrics_shape + state_shape + rew
+                    packed = pack("%sf" % len(message_floats), *message_floats)
+
+                    pipe.send_bytes(PACKED_ENV_STEP_DATA_HEADER + packed + metrics_bytes + obs_buffer)
+
+                else:
+                    message_floats = [prev_n_agents, done, n_elements_in_state_shape, 0] + state_shape + rew
+                    packed = pack("%sf" % len(message_floats), *message_floats)
+                    pipe.send_bytes(PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer)
 
                 if render:
                     env.render()

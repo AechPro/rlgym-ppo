@@ -31,6 +31,7 @@ class Learner(object):
         # fmt: off
         self,
         env_create_function: Callable[...,gym.Gym],
+        metrics_logger = None,
         n_proc: int = 8,
         min_inference_size: int = 80,
         render: bool = False,
@@ -96,7 +97,7 @@ class Learner(object):
         self.n_checkpoints_to_keep = n_checkpoints_to_keep
         self.checkpoints_save_folder = checkpoints_save_folder
         self.max_returns_per_stats_increment = max_returns_per_stats_increment
-
+        self.metrics_logger = metrics_logger
         self.standardize_returns = standardize_returns
         self.save_every_ts = save_every_ts
         self.ts_since_last_save = 0
@@ -122,6 +123,7 @@ class Learner(object):
         )
 
         print("Initializing processes...")
+        collect_metrics_fn = None if metrics_logger is None else self.metrics_logger.collect_metrics
         self.agent = BatchedAgentManager(
             None, min_inference_size=min_inference_size, seed=random_seed,
             standardize_obs=standardize_obs,
@@ -130,6 +132,7 @@ class Learner(object):
         obs_space_size, act_space_size, action_space_type = self.agent.init_processes(
             n_processes=n_proc,
             build_env_fn=env_create_function,
+            collect_metrics_fn=collect_metrics_fn,
             spawn_delay=instance_launch_delay,
             render=render,
             render_delay=render_delay,
@@ -203,9 +206,12 @@ class Learner(object):
             report = {}
 
             # Collect the desired number of timesteps from our agent.
-            experience, steps_collected, collection_time = self.agent.collect_timesteps(
+            experience, collected_metrics, steps_collected, collection_time = self.agent.collect_timesteps(
                 self.ts_per_epoch
             )
+
+            if self.metrics_logger is not None:
+                self.metrics_logger.report_metrics(collected_metrics, self.wandb_run, self.agent.cumulative_timesteps)
 
             # Add the new experience to our buffer and compute the various
             # reinforcement learning quantities we need to

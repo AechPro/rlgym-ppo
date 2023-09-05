@@ -79,7 +79,7 @@ class BatchedAgentManager(object):
         n_collected = 0
         n_procs = max(1, len(list(self.processes.keys())))
         n_obs_per_inference = min(self.min_inference_size, n_procs)
-
+        collected_metrics = []
         # Collect n timesteps.
         while n_collected < n:
             # Send actions for the current observations and collect new states to act on. Note that the next states
@@ -87,7 +87,9 @@ class BatchedAgentManager(object):
             # to be lying around in the buffer will be collected and used in the next inference step.
 
             self._send_actions()
-            n_collected += self._collect_responses(n_obs_per_inference)
+            collected_metrics_this_pass, n_collected_this_pass = self._collect_responses(n_obs_per_inference)
+            n_collected += n_collected_this_pass
+            collected_metrics += collected_metrics_this_pass
 
             for pid in self.current_pids:
                 if self.next_obs[pid] is not None:
@@ -140,6 +142,7 @@ class BatchedAgentManager(object):
                 np.asarray(dones),
                 np.asarray(truncated),
             ),
+            collected_metrics,
             n_collected,
             t2 - t1,
         )
@@ -206,6 +209,7 @@ class BatchedAgentManager(object):
         ep_rews = self.ep_rews
         n_procs = self.n_procs
         self.current_pids = []
+        collected_metrics = []
 
         if self.standardize_obs:
             obs_mean = self.obs_stats.mean[0]
@@ -232,16 +236,42 @@ class BatchedAgentManager(object):
                 prev_n_agents = int(message[0])
                 done = message[1]
                 n_elements_in_state_shape = int(message[2])
-                if n_elements_in_state_shape == 1:
-                    state_shape = [1, int(message[3])]
-                else:
-                    state_shape = [int(arg) for arg in message[3:3 + n_elements_in_state_shape]]
 
-                rew_start = 3 + n_elements_in_state_shape
+
+
+                # message_floats = [prev_n_agents, done, n_elements_in_state_shape, metrics_len] + metrics_shape + state_shape + rew
+                # packed = pack("%sf" % len(message_floats), *message_floats)
+                # pipe.send_bytes(PACKED_ENV_STEP_DATA_HEADER + packed + metrics_bytes + obs_buffer)
+                metrics_len = int(message[3])
+                metrics_shape = []
+                n_metrics = 1 if metrics_len != 0 else 0
+                for arg in message[4:4+metrics_len]:
+                    n_metrics *= arg
+                    metrics_shape.append(int(arg))
+                n_metrics = int(n_metrics)
+
+                state_shape_start = 4+metrics_len
+                if n_elements_in_state_shape == 1:
+
+                    state_shape = [1, int(message[state_shape_start])]
+                else:
+
+                    state_shape = [int(arg) for arg in message[state_shape_start:state_shape_start + n_elements_in_state_shape]]
+
+                metrics_start = 4+metrics_len
+                metrics_end = metrics_start + n_metrics
+
+                rew_start = state_shape_start + n_elements_in_state_shape
                 rew_end = rew_start + prev_n_agents
                 rews = message[rew_start:rew_end]
 
-                next_observation = np.reshape(message[rew_end:], state_shape)
+                if metrics_len != 0:
+                    metrics = np.reshape(message[rew_end:rew_end+n_metrics], metrics_shape)
+                else:
+                    metrics = []
+
+                collected_metrics.append(metrics)
+                next_observation = np.reshape(message[rew_end+n_metrics:], state_shape)
 
                 if self.standardize_obs:
                     if self.steps_since_obs_stats_update > self.steps_per_obs_stats_increment:
@@ -287,7 +317,7 @@ class BatchedAgentManager(object):
 
         self.buffer_ptr = buffer_ptr
 
-        return n_collected
+        return collected_metrics, n_collected
 
     def _get_initial_states(self):
         """
@@ -295,7 +325,6 @@ class BatchedAgentManager(object):
         :return: None.
         """
 
-        # self.current_obs = []
         self.current_pids = []
         for proc_id, proc_package in self.processes.items():
             process, parent_end, child_end = proc_package
@@ -357,6 +386,7 @@ class BatchedAgentManager(object):
         self,
         n_processes,
         build_env_fn,
+        collect_metrics_fn=None,
         spawn_delay=None,
         render=False,
         render_delay: Union[float, None] = None,
@@ -385,7 +415,7 @@ class BatchedAgentManager(object):
                 args=(i, child_end, self.seed + i, render_this_proc, render_delay),
             )
             process.start()
-            parent_end.send(("initialization_data", build_env_fn))
+            parent_end.send(("initialization_data", build_env_fn, collect_metrics_fn))
             self.processes[i] = (process, parent_end, child_end)
             self.ep_rews[i] = [0]
             self.trajectory_map[i] = BatchedTrajectory()

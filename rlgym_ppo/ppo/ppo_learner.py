@@ -121,6 +121,12 @@ class PPOLearner(object):
                     mean_entropy += entropy.detach().item()
                     n_minibatch_iterations += 1
 
+                    del acts
+                    del obs
+                    del advantages
+                    del old_probs
+                    del target_values
+
                 # Division for mini-batching
                 if n_minibatch_iterations > 1:
                     with torch.no_grad():
