@@ -30,7 +30,6 @@ class BatchedAgentManager(object):
         self.next_obs = {}
         self.current_obs = {}
 
-        # self.current_obs = []
         self.current_pids = []
         self.average_reward = None
         self.cumulative_timesteps = 0
@@ -48,6 +47,8 @@ class BatchedAgentManager(object):
 
         self.buffer_ptr = 0
         self.n_procs = 0
+        import struct
+        self.packed_header = struct.pack("%sf" % len(comm_consts.POLICY_ACTIONS_HEADER), *comm_consts.POLICY_ACTIONS_HEADER)
 
     def collect_timesteps(self, n):
         """
@@ -81,7 +82,6 @@ class BatchedAgentManager(object):
 
         # Collect n timesteps.
         while n_collected < n:
-
             # Send actions for the current observations and collect new states to act on. Note that the next states
             # will not necessarily be from the environments that we just sent actions to. Whatever timestep data happens
             # to be lying around in the buffer will be collected and used in the next inference step.
@@ -89,10 +89,9 @@ class BatchedAgentManager(object):
             self._send_actions()
             n_collected += self._collect_responses(n_obs_per_inference)
 
-            # self.current_obs = next_obs
-            # self.current_pids = next_pids
             for pid in self.current_pids:
                 if self.next_obs[pid] is not None:
+
                     self.current_obs[pid] = self.next_obs[pid]
                     self.next_obs[pid] = None
 
@@ -174,9 +173,6 @@ class BatchedAgentManager(object):
             return
 
         inference_batch = np.concatenate(obs, axis=0)
-
-
-        # print("stacked obs for inference",np.shape(self.current_obs),"->", np.shape(inference_batch),"dims:", dimensions)
         actions, log_probs = self.policy.get_action(inference_batch)
         actions = actions.numpy().astype(np.float32)
 
@@ -188,10 +184,7 @@ class BatchedAgentManager(object):
             state = inference_batch[step:stop]
             action = actions[step:stop]
             logp = log_probs[step:stop]
-            # print(proc_id," | ", dim_0)
-            # print("sending actions",action.shape,"for state",state.shape,"and dim",dim_0)
-
-            parent_end.send_bytes(comm_consts.pack_message(comm_consts.POLICY_ACTIONS_HEADER) + action.tobytes())
+            parent_end.send_bytes(self.packed_header + action.tobytes())
             self.trajectory_map[proc_id].action = action
             self.trajectory_map[proc_id].log_prob = logp
             self.trajectory_map[proc_id].state = state
@@ -199,7 +192,6 @@ class BatchedAgentManager(object):
             step += dim_0
 
         self.current_pids = []
-        # self.current_obs = None
 
     def _collect_responses(self, n_obs_per_inference):
         """
@@ -249,8 +241,8 @@ class BatchedAgentManager(object):
                 rew_end = rew_start + prev_n_agents
                 rews = message[rew_start:rew_end]
 
-                # print("got step data", state_shape, state_shape[0], prev_n_agents, len(rews), message[:16].tolist())
                 next_observation = np.reshape(message[rew_end:], state_shape)
+
                 if self.standardize_obs:
                     if self.steps_since_obs_stats_update > self.steps_per_obs_stats_increment:
                         self.obs_stats.increment(next_observation, state_shape[0])
@@ -261,7 +253,6 @@ class BatchedAgentManager(object):
                         self.steps_since_obs_stats_update += 1
 
                     next_observation = np.clip((next_observation - obs_mean) / obs_std, a_min=-5, a_max=5)
-
 
                 if prev_n_agents > 1:
                     n_collected += prev_n_agents
@@ -289,6 +280,10 @@ class BatchedAgentManager(object):
                 trajectory_map[proc_id].reward = rews
                 trajectory_map[proc_id].next_state = next_observation
                 trajectory_map[proc_id].done = done
+
+                if state_shape[0] != prev_n_agents:
+                    self.completed_trajectories.append(trajectory_map[proc_id])
+                    trajectory_map[proc_id] = BatchedTrajectory()
 
         self.buffer_ptr = buffer_ptr
 
