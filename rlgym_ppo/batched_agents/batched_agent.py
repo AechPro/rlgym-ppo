@@ -57,8 +57,8 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
     obs_buffer = reset_state.tobytes()
 
     message_floats = comm_consts.ENV_RESET_STATE_HEADER + [n_elements_in_state_shape] + state_shape
-    packed_message_floats = comm_consts.pack_message(message_floats)
-    pipe.sendto(packed_message_floats + obs_buffer, endpoint)
+    packed_message_floats = comm_consts.pack_message(message_floats) + obs_buffer
+    pipe.sendto(packed_message_floats, endpoint)
 
     action_buffer = None
     action_slice_size = 0
@@ -118,14 +118,14 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
 
                     message_floats = [prev_n_agents, done, n_elements_in_state_shape, len(metrics_shape)] + metrics_shape + state_shape + rew
                     packed = pack("%sf" % len(message_floats), *message_floats)
-
-                    pipe.sendto(PACKED_ENV_STEP_DATA_HEADER + packed + metrics_bytes + obs_buffer, endpoint)
+                    message_bytes = PACKED_ENV_STEP_DATA_HEADER + packed + metrics_bytes + obs_buffer
 
                 else:
                     message_floats = [prev_n_agents, done, n_elements_in_state_shape, 0] + state_shape + rew
                     packed = pack("%sf" % len(message_floats), *message_floats)
-                    pipe.sendto(PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer, endpoint)
+                    message_bytes = PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer
 
+                pipe.sendto(message_bytes, endpoint)
                 if render:
                     env.render()
                     if render_delay is not None:

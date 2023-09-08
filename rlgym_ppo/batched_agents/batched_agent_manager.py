@@ -86,6 +86,7 @@ class BatchedAgentManager(object):
         collected_metrics = []
         # Collect n timesteps.
         while n_collected < n:
+
             # Send actions for the current observations and collect new states to act on. Note that the next states
             # will not necessarily be from the environments that we just sent actions to. Whatever timestep data happens
             # to be lying around in the buffer will be collected and used in the next inference step.
@@ -217,111 +218,99 @@ class BatchedAgentManager(object):
             obs_mean = None
             obs_std = None
 
-        def _collect_response(self, proc_id, parent_end, child_endpoint, obs_mean, obs_std):
-            available_data = parent_end.recv(4096)
-            message = np.frombuffer(available_data, dtype=np.float32)
-            header = message[:comm_consts.HEADER_LEN]
-            message = message[comm_consts.HEADER_LEN:]
-
-            if header[0] == comm_consts.ENV_STEP_DATA_HEADER[0]:
-                prev_n_agents = int(message[0])
-                done = message[1]
-                n_elements_in_state_shape = int(message[2])
-
-
-
-                # message_floats = [prev_n_agents, done, n_elements_in_state_shape, metrics_len] + metrics_shape + state_shape + rew
-                # packed = pack("%sf" % len(message_floats), *message_floats)
-                # pipe.sendto(PACKED_ENV_STEP_DATA_HEADER + packed + metrics_bytes + obs_buffer, child_endpoint)
-                metrics_len = int(message[3])
-                metrics_shape = []
-                n_metrics = 1 if metrics_len != 0 else 0
-                for arg in message[4:4+metrics_len]:
-                    n_metrics *= arg
-                    metrics_shape.append(int(arg))
-                n_metrics = int(n_metrics)
-
-                state_shape_start = 4+metrics_len
-                if n_elements_in_state_shape == 1:
-
-                    state_shape = [1, int(message[state_shape_start])]
-                else:
-
-                    state_shape = [int(arg) for arg in message[state_shape_start:state_shape_start + n_elements_in_state_shape]]
-
-                metrics_start = 4+metrics_len
-                metrics_end = metrics_start + n_metrics
-
-                rew_start = state_shape_start + n_elements_in_state_shape
-                rew_end = rew_start + prev_n_agents
-                rews = message[rew_start:rew_end]
-
-                if metrics_len != 0:
-                    metrics = np.reshape(message[rew_end:rew_end+n_metrics], metrics_shape)
-                else:
-                    metrics = []
-
-                collected_metrics.append(metrics)
-                next_observation = np.reshape(message[rew_end+n_metrics:], state_shape)
-
-                if self.standardize_obs:
-                    if self.steps_since_obs_stats_update > self.steps_per_obs_stats_increment:
-                        self.obs_stats.increment(next_observation, state_shape[0])
-                        obs_mean[0] = self.obs_stats.mean[0]
-                        obs_std[0] = self.obs_stats.std[0]
-                        self.steps_since_obs_stats_update = 0
-                    else:
-                        self.steps_since_obs_stats_update += 1
-
-                    next_observation = np.clip((next_observation - obs_mean[0]) / obs_std[0], a_min=-5, a_max=5)
-
-                if prev_n_agents > 1:
-                    n_collected = prev_n_agents
-                    for i in range(prev_n_agents):
-                        if i >= len(self.ep_rews[proc_id]):
-                            self.ep_rews[proc_id].append(rews[i])
-                        else:
-                            self.ep_rews[proc_id][i] += rews[i]
-                else:
-                    n_collected = 1
-                    rews = rews[0]
-                    self.ep_rews[proc_id][0] += rews
-
-                if done:
-                    if self.average_reward is None:
-                        self.average_reward = self.ep_rews[proc_id][0]
-                    else:
-                        for ep_rew in self.ep_rews[proc_id]:
-                            self.average_reward = self.average_reward * 0.9 + ep_rew * 0.1
-
-                    self.ep_rews[proc_id] = [0]
-
-                if not proc_id in self.current_pids:
-                    self.current_pids.append(proc_id)
-
-                self.next_obs[proc_id] = next_observation
-                self.trajectory_map[proc_id].reward = rews
-                self.trajectory_map[proc_id].next_state = next_observation
-                self.trajectory_map[proc_id].done = done
-
-                if state_shape[0] != prev_n_agents:
-                    self.completed_trajectories.append(trajectory_map[proc_id])
-                    trajectory_map[proc_id] = BatchedTrajectory()
-
-                return n_collected
-
         while n_collected < n_obs_per_inference:
             for key, event in self.selector.select():
                 if not (event & selectors.EVENT_READ):
                     continue
 
                 parent_end, fd, events, proc_id = key
-
                 process, parent_end, child_endpoint = self.processes[proc_id]
-
-                n_collected += _collect_response(self, proc_id, parent_end, child_endpoint, [obs_mean], [obs_std])
+                n_collected += self._collect_response(proc_id, parent_end, collected_metrics, obs_mean, obs_std)
 
         return collected_metrics, n_collected
+
+    def _collect_response(self, proc_id, parent_end, collected_metrics, obs_mean, obs_std):
+        available_data = parent_end.recv(8192)
+        message = np.frombuffer(available_data, dtype=np.float32)
+        header = message[:comm_consts.HEADER_LEN]
+        message = message[comm_consts.HEADER_LEN:]
+
+        if header[0] == comm_consts.ENV_STEP_DATA_HEADER[0]:
+            prev_n_agents = int(message[0])
+            done = message[1]
+            n_elements_in_state_shape = int(message[2])
+
+            metrics_len = int(message[3])
+            metrics_shape = []
+            n_metrics = 1 if metrics_len != 0 else 0
+            for arg in message[4:4+metrics_len]:
+                n_metrics *= arg
+                metrics_shape.append(int(arg))
+            n_metrics = int(n_metrics)
+
+            state_shape_start = 4+metrics_len
+            if n_elements_in_state_shape == 1:
+
+                state_shape = [1, int(message[state_shape_start])]
+            else:
+
+                state_shape = [int(arg) for arg in message[state_shape_start:state_shape_start + n_elements_in_state_shape]]
+
+            rew_start = state_shape_start + n_elements_in_state_shape
+            rew_end = rew_start + prev_n_agents
+            rews = message[rew_start:rew_end]
+
+            if metrics_len != 0:
+                metrics = np.reshape(message[rew_end:rew_end+n_metrics], metrics_shape)
+            else:
+                metrics = []
+
+            collected_metrics.append(metrics)
+            next_observation = np.reshape(message[rew_end+n_metrics:], state_shape)
+
+            if self.standardize_obs:
+                if self.steps_since_obs_stats_update > self.steps_per_obs_stats_increment:
+                    self.obs_stats.increment(next_observation, state_shape[0])
+                    self.steps_since_obs_stats_update = 0
+                else:
+                    self.steps_since_obs_stats_update += 1
+
+                next_observation = np.clip((next_observation - obs_mean) / obs_std, a_min=-5, a_max=5)
+
+            if prev_n_agents > 1:
+                n_collected = prev_n_agents
+                for i in range(prev_n_agents):
+                    if i >= len(self.ep_rews[proc_id]):
+                        self.ep_rews[proc_id].append(rews[i])
+                    else:
+                        self.ep_rews[proc_id][i] += rews[i]
+            else:
+                n_collected = 1
+                rews = rews[0]
+                self.ep_rews[proc_id][0] += rews
+
+            if done:
+                if self.average_reward is None:
+                    self.average_reward = self.ep_rews[proc_id][0]
+                else:
+                    for ep_rew in self.ep_rews[proc_id]:
+                        self.average_reward = self.average_reward * 0.9 + ep_rew * 0.1
+
+                self.ep_rews[proc_id] = [0]
+
+            if proc_id not in self.current_pids:
+                self.current_pids.append(proc_id)
+
+            self.next_obs[proc_id] = next_observation
+            self.trajectory_map[proc_id].reward = rews
+            self.trajectory_map[proc_id].next_state = next_observation
+            self.trajectory_map[proc_id].done = done
+
+            if state_shape[0] != prev_n_agents:
+                self.completed_trajectories.append(self.trajectory_map[proc_id])
+                self.trajectory_map[proc_id] = BatchedTrajectory()
+
+            return n_collected
 
     def _get_initial_states(self):
         """
@@ -355,7 +344,6 @@ class BatchedAgentManager(object):
 
                 # self.current_obs.append(obs)
                 self.current_obs[proc_id] = obs
-
 
     def _get_env_shapes(self):
         """
@@ -392,10 +380,11 @@ class BatchedAgentManager(object):
     ):
         """
         Initialize and spawn environment processes.
-
         :param n_processes: Number of processes to spawn.
         :param build_env_fn: A function to build the environment for each process.
-        :param spawn_delay: Delay between spawning processes. Defaults to None.
+        :param collect_metrics_fn: A user-defined function that the environment processes will use to collect metrics
+               about the environment at each timestep.
+        :param spawn_delay: Delay between spawning environment instances. Defaults to None.
         :param render: Whether an environment should be rendered while collecting timesteps.
         :param render_delay: A period in seconds to delay a process between frames while rendering.
         :return: A tuple containing observation shape, action shape, and action space type.
@@ -450,20 +439,24 @@ class BatchedAgentManager(object):
         """
         Clean up resources and terminate processes.
         """
+        import traceback
         for proc_id, proc_package in self.processes.items():
             process, parent_end, child_endpoint = proc_package
+
             try:
                 parent_end.sendto(comm_consts.pack_message(comm_consts.STOP_MESSAGE_HEADER), child_endpoint)
             except:
-                import traceback
                 print("Failed to send stop signal to child process!")
                 traceback.print_exc()
+
             try:
                 process.join()
-            except Exception as e:
-                print(f"Unable to join process")
+            except:
+                print("Unable to join process")
+                traceback.print_exc()
 
-        try:
-            parent_end.close()
-        except:
-            print("Unable to close parent connection")
+            try:
+                parent_end.close()
+            except:
+                print("Unable to close parent connection")
+                traceback.print_exc()
