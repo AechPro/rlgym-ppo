@@ -15,11 +15,20 @@ import torch
 class ExperienceBuffer(object):
     @staticmethod
     def _cat(t1, t2, size):
-        if len(t2) >= size:
-            t = torch.cat((t2[len(t2) - size:],), 0)
-        elif len(t1) + len(t2) >= size:
+        if len(t2) > size:
+            # t2 alone is larger than we want; copy the end
+            t = t2[-size:].clone()
+
+        elif len(t2) == size:
+            # t2 is a perfect match; just use it directly
+            t = t2
+
+        elif len(t1) + len(t2) > size:
+            # t1+t2 is larger than we want; use t2 wholly with the end of t1 before it
             t = torch.cat((t1[len(t2) - size:], t2), 0)
+
         else:
+            # t1+t2 does not exceed what we want; concatenate directly
             t = torch.cat((t1, t2), 0)
 
         del t1

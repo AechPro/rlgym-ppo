@@ -1,10 +1,10 @@
 
 
-def batched_agent_process(proc_id, pipe, seed, render, render_delay):
+def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
     """
     Function to interact with an environment and communicate with the learner through a pipe.
 
-    :param pipe: A bidirectional communication pipe.
+    :param endpoint: Parent endpoint for communication
     :param seed: Seed for environment and action space randomization.
     :param render: Whether the environment will be rendered every timestep.
     :param render_delay: Amount of time in seconds to delay between steps while rendering.
@@ -14,6 +14,8 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
     import time
     import gym
     import numpy as np
+    import pickle
+    import socket
     import struct
     from rlgym_ppo.batched_agents import comm_consts
     env = None
@@ -26,9 +28,14 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
     PACKED_ENV_STEP_DATA_HEADER = comm_consts.pack_message(comm_consts.ENV_STEP_DATA_HEADER)
     header_len = comm_consts.HEADER_LEN
 
+    # Create a socket and send dummy data to tell parent our endpoint
+    pipe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    pipe.bind(("127.0.0.1", 0))
+    pipe.sendto(b"0", endpoint)
+
     # Wait for initialization data from the learner.
     while env is None:
-        data = pipe.recv()
+        data = pickle.loads(pipe.recv(4096))
         if data[0] == "initialization_data":
             build_env_fn = data[1]
             metrics_encoding_function = data[2]
@@ -51,7 +58,7 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
 
     message_floats = comm_consts.ENV_RESET_STATE_HEADER + [n_elements_in_state_shape] + state_shape
     packed_message_floats = comm_consts.pack_message(message_floats)
-    pipe.send_bytes(packed_message_floats + obs_buffer)
+    pipe.sendto(packed_message_floats + obs_buffer, endpoint)
 
     action_buffer = None
     action_slice_size = 0
@@ -64,7 +71,7 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
     # Primary interaction loop.
     try:
         while True:
-            message_bytes = pipe.recv_bytes()
+            message_bytes = pipe.recv(4096)
             message = frombuffer(message_bytes, dtype=np.float32)
             # message = byte_headers.unpack_message(message_bytes)
             header = message[:header_len]
@@ -112,12 +119,12 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
                     message_floats = [prev_n_agents, done, n_elements_in_state_shape, len(metrics_shape)] + metrics_shape + state_shape + rew
                     packed = pack("%sf" % len(message_floats), *message_floats)
 
-                    pipe.send_bytes(PACKED_ENV_STEP_DATA_HEADER + packed + metrics_bytes + obs_buffer)
+                    pipe.sendto(PACKED_ENV_STEP_DATA_HEADER + packed + metrics_bytes + obs_buffer, endpoint)
 
                 else:
                     message_floats = [prev_n_agents, done, n_elements_in_state_shape, 0] + state_shape + rew
                     packed = pack("%sf" % len(message_floats), *message_floats)
-                    pipe.send_bytes(PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer)
+                    pipe.sendto(PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer, endpoint)
 
                 if render:
                     env.render()
@@ -142,7 +149,7 @@ def batched_agent_process(proc_id, pipe, seed, render, render_delay):
 
                 env_shape = float(np.prod(env.observation_space.shape))
                 message_floats = ENV_SHAPES_HEADER + [env_shape, n_acts, action_space_type]
-                pipe.send_bytes(pack("%sf" % len(message_floats), *message_floats))
+                pipe.sendto(pack("%sf" % len(message_floats), *message_floats), endpoint)
 
             elif header[0] == STOP_MESSAGE_HEADER[0]:
                 break
