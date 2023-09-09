@@ -322,7 +322,7 @@ class BatchedAgentManager(object):
         for proc_id, proc_package in self.processes.items():
             process, parent_end, child_endpoint = proc_package
 
-            available_data = parent_end.recv(4096)
+            available_data = parent_end.recv(8192)
             message = comm_consts.unpack_message(available_data)
 
             header = message[:comm_consts.HEADER_LEN]
