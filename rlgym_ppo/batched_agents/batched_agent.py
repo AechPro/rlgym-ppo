@@ -1,5 +1,3 @@
-
-
 def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
     """
     Function to interact with an environment and communicate with the learner through a pipe.
@@ -11,13 +9,16 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
     :return: None
     """
 
-    import time
-    import gym
-    import numpy as np
     import pickle
     import socket
     import struct
+    import time
+
+    import gym
+    import numpy as np
+
     from rlgym_ppo.batched_agents import comm_consts
+
     env = None
     metrics_encoding_function = None
 
@@ -25,7 +26,9 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
     ENV_SHAPES_HEADER = comm_consts.ENV_SHAPES_HEADER
     STOP_MESSAGE_HEADER = comm_consts.STOP_MESSAGE_HEADER
 
-    PACKED_ENV_STEP_DATA_HEADER = comm_consts.pack_message(comm_consts.ENV_STEP_DATA_HEADER)
+    PACKED_ENV_STEP_DATA_HEADER = comm_consts.pack_message(
+        comm_consts.ENV_STEP_DATA_HEADER
+    )
     header_len = comm_consts.HEADER_LEN
 
     # Create a socket and send dummy data to tell parent our endpoint
@@ -56,7 +59,9 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
     n_agents = state_shape[0] if n_elements_in_state_shape > 1 else 1
     obs_buffer = reset_state.tobytes()
 
-    message_floats = comm_consts.ENV_RESET_STATE_HEADER + [n_elements_in_state_shape] + state_shape
+    message_floats = (
+        comm_consts.ENV_RESET_STATE_HEADER + [n_elements_in_state_shape] + state_shape
+    )
     packed_message_floats = comm_consts.pack_message(message_floats) + obs_buffer
     pipe.sendto(packed_message_floats, endpoint)
 
@@ -85,7 +90,9 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
                     action_slice_size = action_buffer.shape[1]
                 else:
                     for i in range(int(n_agents)):
-                        action_buffer[i] = data[i*action_slice_size:(i+1)*action_slice_size]
+                        action_buffer[i] = data[
+                            i * action_slice_size : (i + 1) * action_slice_size
+                        ]
 
                 # print("got actions", action_buffer.shape,"|",n_agents,"|",prev_n_agents)
                 obs, rew, done, info = env.step(action_buffer)
@@ -107,7 +114,7 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
                 elif obs.dtype != np.float32:
                     obs = obs.astype(np.float32)
 
-                done = 1. if done else 0.
+                done = 1.0 if done else 0.0
 
                 obs_buffer = obs.tobytes()
 
@@ -116,13 +123,32 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
                     metrics_shape = [float(arg) for arg in metrics.shape]
                     metrics_bytes = metrics.tobytes()
 
-                    message_floats = [prev_n_agents, done, n_elements_in_state_shape, len(metrics_shape)] + metrics_shape + state_shape + rew
-                    packed = pack("%sf" % len(message_floats), *message_floats)
-                    message_bytes = PACKED_ENV_STEP_DATA_HEADER + packed + metrics_bytes + obs_buffer
+                    message_floats = (
+                        [
+                            prev_n_agents,
+                            done,
+                            n_elements_in_state_shape,
+                            len(metrics_shape),
+                        ]
+                        + metrics_shape
+                        + state_shape
+                        + rew
+                    )
+                    packed = pack(f"{len(message_floats)}f", *message_floats)
+                    message_bytes = (
+                        PACKED_ENV_STEP_DATA_HEADER
+                        + packed
+                        + metrics_bytes
+                        + obs_buffer
+                    )
 
                 else:
-                    message_floats = [prev_n_agents, done, n_elements_in_state_shape, 0] + state_shape + rew
-                    packed = pack("%sf" % len(message_floats), *message_floats)
+                    message_floats = (
+                        [prev_n_agents, done, n_elements_in_state_shape, 0]
+                        + state_shape
+                        + rew
+                    )
+                    packed = pack(f"{len(message_floats)}f", *message_floats)
                     message_bytes = PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer
 
                 pipe.sendto(message_bytes, endpoint)
@@ -133,34 +159,41 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
 
             elif header[0] == ENV_SHAPES_HEADER[0]:
                 t = type(env.action_space)
-                action_space_type = 0.  # "discrete"
+                action_space_type = 0.0  # "discrete"
                 if t == gym.spaces.multi_discrete.MultiDiscrete:
-                    action_space_type = 1.  # "multi-discrete"
+                    action_space_type = 1.0  # "multi-discrete"
                 elif t == gym.spaces.box.Box:
-                    action_space_type = 2.  # "continuous"
+                    action_space_type = 2.0  # "continuous"
 
                 if hasattr(env.action_space, "n"):
                     n_acts = float(env.action_space.n)
                 else:
                     n_acts = float(np.prod(env.action_space.shape))
 
-                print("Received request for env shapes, returning", env.observation_space.shape, n_acts,
-                      action_space_type)
+                print(
+                    "Received request for env shapes, returning",
+                    env.observation_space.shape,
+                    n_acts,
+                    action_space_type,
+                )
 
                 env_shape = float(np.prod(env.observation_space.shape))
-                message_floats = ENV_SHAPES_HEADER + [env_shape, n_acts, action_space_type]
-                pipe.sendto(pack("%sf" % len(message_floats), *message_floats), endpoint)
+                message_floats = ENV_SHAPES_HEADER + [
+                    env_shape,
+                    n_acts,
+                    action_space_type,
+                ]
+                pipe.sendto(pack(f"{len(message_floats)}f", *message_floats), endpoint)
 
             elif header[0] == STOP_MESSAGE_HEADER[0]:
                 break
 
-    # Catch everything and print it.
-    except:
+    except Exception:
         import traceback
+
         print("ERROR IN BATCHED AGENT LOOP")
         traceback.print_exc()
 
-    # Close the pipe and local environment instance.
     finally:
         pipe.close()
         env.close()
