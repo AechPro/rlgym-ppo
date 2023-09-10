@@ -30,6 +30,9 @@ except ImportError:
         return iterator
 
 
+PACKET_MAX_SIZE = 8192
+
+
 class BatchedAgentManager(object):
     def __init__(
         self,
@@ -251,7 +254,7 @@ class BatchedAgentManager(object):
     def _collect_response(
         self, proc_id, parent_end, collected_metrics, obs_mean, obs_std
     ):
-        available_data = parent_end.recv(8192)
+        available_data = parent_end.recv(PACKET_MAX_SIZE)
         message = np.frombuffer(available_data, dtype=np.float32)
         header = message[: comm_consts.HEADER_LEN]
         message = message[comm_consts.HEADER_LEN :]
@@ -354,7 +357,7 @@ class BatchedAgentManager(object):
         for proc_id, proc_package in self.processes.items():
             process, parent_end, child_endpoint = proc_package
 
-            available_data = parent_end.recv(8192)
+            available_data = parent_end.recv(PACKET_MAX_SIZE)
             message = comm_consts.unpack_message(available_data)
 
             header = message[: comm_consts.HEADER_LEN]
@@ -390,7 +393,7 @@ class BatchedAgentManager(object):
         done = False
 
         while not done:
-            available_data = parent_end.recv(4096)
+            available_data = parent_end.recv(PACKET_MAX_SIZE)
             message = comm_consts.unpack_message(available_data)
             header = message[: comm_consts.HEADER_LEN]
             if header == comm_consts.ENV_SHAPES_HEADER:
