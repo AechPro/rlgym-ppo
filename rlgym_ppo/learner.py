@@ -19,6 +19,7 @@ from typing import Callable, Union, Tuple
 import numpy as np
 import torch
 import wandb
+from wandb.wandb_run import Run
 from rlgym_sim import gym
 
 from rlgym_ppo.batched_agents import BatchedAgentManager
@@ -62,7 +63,7 @@ class Learner(object):
 
         log_to_wandb: bool = False,
         load_wandb: bool = True,
-        wandb_run: Union[str,None] = None,
+        wandb_run: Union[Run,None] = None,
         wandb_project_name: Union[str,None] = None,
         wandb_group_name: Union[str,None] = None,
         wandb_run_name: Union[str,None] = None,
