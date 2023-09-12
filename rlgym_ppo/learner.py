@@ -23,7 +23,7 @@ from rlgym_sim import gym
 
 from rlgym_ppo.batched_agents import BatchedAgentManager
 from rlgym_ppo.ppo import ExperienceBuffer, PPOLearner
-from rlgym_ppo.util import WelfordRunningStat, reporting, torch_functions
+from rlgym_ppo.util import WelfordRunningStat, reporting, torch_functions, KBHit
 
 
 class Learner(object):
@@ -199,6 +199,10 @@ class Learner(object):
         :return: None
         """
 
+        # Class to watch for keyboard hits
+        kb = KBHit()
+        print("Press (p) to pause (c) to checkpoint, (q) to checkpoint and quit (after next iteration)\n")
+
         # While the number of timesteps we have collected so far is less than the
         # amount we are allowed to collect.
         while self.agent.cumulative_timesteps < self.timestep_limit:
@@ -252,6 +256,24 @@ class Learner(object):
 
             if "cuda" in self.device:
                 torch.cuda.empty_cache()
+
+            # Check if keyboard press
+            # p: pause, any key to resume
+            # c: checkpoint
+            # q: checkpoint and quit
+            if kb.kbhit():
+                c = kb.getch()
+                if c == 'p': # pause
+                    print("Paused, press any key to resume")
+                    while True:
+                        if kb.kbhit():
+                            break
+                if c in ('c', 'q'):
+                    self.save(self.agent.cumulative_timesteps)
+                if c == 'q':
+                    return
+                if c in ('c', 'p'):
+                    print("Resuming...\n")
 
             # Save if we've reached the next checkpoint timestep.
             if self.ts_since_last_save >= self.save_every_ts:
