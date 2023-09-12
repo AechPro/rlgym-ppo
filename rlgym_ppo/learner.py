@@ -273,9 +273,6 @@ class Learner(object):
                 if c == 'q':
                     return
                 if c in ('c', 'p'):
-                    # Clear the buffer
-                    # while kb.getch():
-                    #     pass
                     print("Resuming...\n")
 
             # Save if we've reached the next checkpoint timestep.
