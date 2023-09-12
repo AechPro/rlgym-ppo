@@ -259,7 +259,7 @@ class Learner(object):
 
             # Check if keyboard press
             # p: pause, any key to resume
-            # c: cehckpoint
+            # c: checkpoint
             # q: checkpoint and quit
             if kb.kbhit():
                 c = kb.getch()
