@@ -18,6 +18,7 @@ from typing import Callable, Union, Tuple
 
 import numpy as np
 import torch
+import torch.backends
 import wandb
 from wandb.wandb_run import Run
 from rlgym_sim import gym
@@ -76,7 +77,9 @@ class Learner(object):
         instance_launch_delay: Union[float,None] = None,
         random_seed: int = 123,
         n_checkpoints_to_keep: int = 5,
-        device: str = "auto"):
+
+        device: str = "auto",
+        inference_device: str = "auto"):
         assert (
             env_create_function is not None
         ), "MUST PROVIDE A FUNCTION TO CREATE RLGYM FUNCTIONS TO INITIALIZE RLGYM-PPO"
@@ -105,12 +108,31 @@ class Learner(object):
 
         if device in {"auto", "gpu"} and torch.cuda.is_available():
             self.device = "cuda:0"
-        elif device == "auto" and not torch.cuda.is_available():
+        elif device in {"auto", "gpu"} and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            self.device = "mps"
+        elif device == "auto":
             self.device = "cpu"
         else:
             self.device = device
+        
+        if inference_device in {"auto", "gpu"} and torch.cuda.is_available():
+            # if multiple cuda devices are available, use the second one for inference
+            if torch.cuda.device_count() > 1:
+                self.inference_device = "cuda:1"
+            else:
+                self.inference_device = "cuda:0"
+        elif inference_device == "gpu" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            # macos, apple m1, etc
+            # only go with mps for inference if gpu is explicitly requested.
+            # based on testing, it's quite a bit slower than using mps for
+            # backprop and CPU for inference
+            inference_device = "mps"
+        elif inference_device == "auto":
+            self.inference_device = "cpu"
+        else:
+            self.inference_device = inference_device
 
-        print(f"Using device {self.device}")
+        print(f"Using device {self.device} for backprop and {self.inference_device} for inference")
         self.exp_buffer_size = exp_buffer_size
         self.timestep_limit = timestep_limit
         self.ts_per_epoch = ts_per_iteration
@@ -160,7 +182,10 @@ class Learner(object):
             ent_coef=ppo_ent_coef,
         )
 
-        self.agent.policy = self.ppo_learner.policy
+        if self.device == self.inference_device:
+            self.agent.policy = self.ppo_learner.policy
+        else:
+            self.agent.policy = self.ppo_learner.policy.clone(to=self.inference_device)
 
         self.wandb_run = wandb_run
         wandb_loaded = checkpoint_load_folder is not None and self.load(
@@ -207,6 +232,12 @@ class Learner(object):
         # While the number of timesteps we have collected so far is less than the
         # amount we are allowed to collect.
         while self.agent.cumulative_timesteps < self.timestep_limit:
+
+            # if we're using different devices for inference and backprop, we need to
+            # copy the current policy to the inference device
+            if self.device != self.inference_device:
+                self.agent.policy = self.ppo_learner.policy.clone(to=self.inference_device)
+
             epoch_start = time.perf_counter()
             report = {}
 
@@ -255,7 +286,7 @@ class Learner(object):
             report.clear()
             ppo_report.clear()
 
-            if "cuda" in self.device:
+            if "cuda" in self.device or "cuda" in self.inference_device:
                 torch.cuda.empty_cache()
 
             # Check if keyboard press

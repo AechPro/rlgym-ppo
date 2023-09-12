@@ -17,6 +17,7 @@ class MultiDiscreteFF(nn.Module):
     def __init__(self, input_shape, layer_sizes, device):
         super().__init__()
         self.device = device
+        self.layer_sizes = layer_sizes
         bins = [3,3,3,3,3,2,2,2]
         n_output_nodes = sum(bins)
         assert len(layer_sizes) != 0, "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
@@ -32,6 +33,13 @@ class MultiDiscreteFF(nn.Module):
         self.model = nn.Sequential(*layers).to(self.device)
         self.splits = bins
         self.multi_discrete = torch_functions.MultiDiscreteRolv(bins)
+
+    def clone(self, to: str = None):
+        device = self.device if to is None else to
+        cloned_policy = MultiDiscreteFF(self.input_shape, self.layer_sizes, device)
+        cloned_policy.load_state_dict(self.state_dict())
+        if to is not None:
+            cloned_policy.to(to)
 
     def get_output(self, obs):
         t = type(obs)
