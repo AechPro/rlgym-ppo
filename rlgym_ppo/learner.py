@@ -19,12 +19,12 @@ from typing import Callable, Tuple, Union
 import numpy as np
 import torch
 import wandb
-from wandb.wandb_run import Run
 from rlgym_sim import gym
+from wandb.wandb_run import Run
 
 from rlgym_ppo.batched_agents import BatchedAgentManager
 from rlgym_ppo.ppo import ExperienceBuffer, PPOLearner
-from rlgym_ppo.util import WelfordRunningStat, reporting, torch_functions, KBHit
+from rlgym_ppo.util import KBHit, WelfordRunningStat, reporting, torch_functions
 
 
 class Learner(object):
@@ -211,7 +211,9 @@ class Learner(object):
 
         # Class to watch for keyboard hits
         kb = KBHit()
-        print("Press (p) to pause (c) to checkpoint, (q) to checkpoint and quit (after next iteration)\n")
+        print(
+            "Press (p) to pause (c) to checkpoint, (q) to checkpoint and quit (after next iteration)\n"
+        )
 
         # While the number of timesteps we have collected so far is less than the
         # amount we are allowed to collect.
@@ -278,16 +280,15 @@ class Learner(object):
             # q: checkpoint and quit
             if kb.kbhit():
                 c = kb.getch()
-                if c == 'p': # pause
+                if c == "p":  # pause
                     print("Paused, press any key to resume")
-                    while True:
-                        if kb.kbhit():
-                            break
-                if c in ('c', 'q'):
+                    while not kb.kbhit():
+                        pass
+                if c in ("c", "q"):
                     self.save(self.agent.cumulative_timesteps)
-                if c == 'q':
+                if c == "q":
                     return
-                if c in ('c', 'p'):
+                if c in ("c", "p"):
                     print("Resuming...\n")
 
             # Save if we've reached the next checkpoint timestep.
