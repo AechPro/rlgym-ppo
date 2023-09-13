@@ -17,6 +17,8 @@ class DiscreteFF(nn.Module):
     def __init__(self, input_shape, n_actions, layer_sizes, device):
         super().__init__()
         self.device = device
+        self.input_shape = input_shape
+        self.layer_sizes = layer_sizes
 
         assert len(layer_sizes) != 0, "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
         layers = [nn.Linear(input_shape, layer_sizes[0]), nn.ReLU()]
@@ -32,6 +34,14 @@ class DiscreteFF(nn.Module):
 
         self.n_actions = n_actions
 
+    def clone(self, to: str = None):
+        device = self.device if to is None else to
+        cloned_policy = DiscreteFF(self.input_shape, self.n_actions, self.layer_sizes, device)
+        cloned_policy.load_state_dict(self.state_dict())
+        if to is not None:
+            cloned_policy.to(to)
+        
+        return cloned_policy
     def get_output(self, obs):
         t = type(obs)
         if t != torch.Tensor:

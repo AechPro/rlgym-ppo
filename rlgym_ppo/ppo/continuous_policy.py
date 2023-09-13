@@ -23,6 +23,11 @@ from rlgym_ppo.util import torch_functions
 class ContinuousPolicy(nn.Module):
     def __init__(self, input_shape, output_shape, layer_sizes, device, var_min=0.1, var_max=1.0):
         super().__init__()
+        self.input_shape = input_shape
+        self.output_shape = output_shape
+        self.layer_sizes = layer_sizes
+        self.var_min = var_min
+        self.var_max = var_max
         self.device = device
         self.affine_map = torch_functions.MapContinuousToAction(range_min=var_min, range_max=var_max)
 
@@ -39,6 +44,15 @@ class ContinuousPolicy(nn.Module):
         layers.append(nn.Linear(layer_sizes[-1], output_shape))
         layers.append(nn.Tanh())
         self.model = nn.Sequential(*layers).to(self.device)
+    
+    def clone(self, to: str = None):
+        device = self.device if to is None else to
+        cloned_policy = ContinuousPolicy(self.input_shape, self.output_shape, self.layer_sizes, device, self.var_min, self.var_max)
+        cloned_policy.load_state_dict(self.state_dict())
+        if to is not None:
+            cloned_policy.to(to)
+        
+        return cloned_policy
 
     @functools.lru_cache()
     def logpdf(self, x, mean, std):

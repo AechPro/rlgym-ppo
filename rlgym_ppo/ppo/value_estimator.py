@@ -13,6 +13,8 @@ import numpy as np
 class ValueEstimator(nn.Module):
     def __init__(self, input_shape, layer_sizes, device):
         super().__init__()
+        self.input_shape = input_shape
+        self.layer_sizes = layer_sizes
         self.device = device
 
         assert len(layer_sizes) != 0, "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
@@ -26,6 +28,14 @@ class ValueEstimator(nn.Module):
 
         layers.append(nn.Linear(layer_sizes[-1], 1))
         self.model = nn.Sequential(*layers).to(self.device)
+    
+    
+    def clone(self, to: str = None):
+        device = self.device if to is None else to
+        cloned_value_estimator = ValueEstimator(self.input_shape, self.layer_sizes, device)
+        cloned_value_estimator.load_state_dict(self.state_dict())
+        if to is not None:
+            cloned_value_estimator.to(to)
 
     def forward(self, x):
         t = type(x)
