@@ -9,24 +9,39 @@ Description:
 """
 
 import multiprocessing as mp
+import pickle
+import selectors
+import socket
 import time
 from typing import Union
 
 import numpy as np
 import torch
 
-import pickle
-import socket
-import selectors
-
-from rlgym_ppo.batched_agents import BatchedTrajectory
+from rlgym_ppo.batched_agents import BatchedTrajectory, comm_consts
 from rlgym_ppo.batched_agents.batched_agent import batched_agent_process
-from rlgym_ppo.batched_agents import comm_consts
 from rlgym_ppo.util import WelfordRunningStat
+
+try:
+    from tqdm import tqdm
+except ImportError:
+
+    def tqdm(iterator, *args, **kwargs):
+        return iterator
+
+
+PACKET_MAX_SIZE = 8192
 
 
 class BatchedAgentManager(object):
-    def __init__(self, policy, min_inference_size=8, seed=123, standardize_obs=True, steps_per_obs_stats_increment=5):
+    def __init__(
+        self,
+        policy,
+        min_inference_size=8,
+        seed=123,
+        standardize_obs=True,
+        steps_per_obs_stats_increment=5,
+    ):
         self.policy = policy
         self.seed = seed
         self.processes = {}
@@ -52,7 +67,11 @@ class BatchedAgentManager(object):
 
         self.n_procs = 0
         import struct
-        self.packed_header = struct.pack("%sf" % len(comm_consts.POLICY_ACTIONS_HEADER), *comm_consts.POLICY_ACTIONS_HEADER)
+
+        self.packed_header = struct.pack(
+            f"{len(comm_consts.POLICY_ACTIONS_HEADER)}f",
+            *comm_consts.POLICY_ACTIONS_HEADER,
+        )
 
     def collect_timesteps(self, n):
         """
@@ -86,19 +105,20 @@ class BatchedAgentManager(object):
         collected_metrics = []
         # Collect n timesteps.
         while n_collected < n:
-
             # Send actions for the current observations and collect new states to act on. Note that the next states
             # will not necessarily be from the environments that we just sent actions to. Whatever timestep data happens
             # to be lying around in the buffer will be collected and used in the next inference step.
 
             self._send_actions()
-            collected_metrics_this_pass, n_collected_this_pass = self._collect_responses(n_obs_per_inference)
+            (
+                collected_metrics_this_pass,
+                n_collected_this_pass,
+            ) = self._collect_responses(n_obs_per_inference)
             n_collected += n_collected_this_pass
             collected_metrics += collected_metrics_this_pass
 
             for pid in self.current_pids:
                 if self.next_obs[pid] is not None:
-
                     self.current_obs[pid] = self.next_obs[pid]
                     self.next_obs[pid] = None
 
@@ -177,7 +197,7 @@ class BatchedAgentManager(object):
             pids.append(pid)
             dimensions.append(o.shape[0])
 
-        if len(dimensions) == 0:
+        if not dimensions:
             return
 
         inference_batch = np.concatenate(obs, axis=0)
@@ -187,7 +207,7 @@ class BatchedAgentManager(object):
         step = 0
         for proc_id, dim_0 in zip(pids, dimensions):
             process, parent_end, child_endpoint = self.processes[proc_id]
-            stop = step+dim_0
+            stop = step + dim_0
 
             state = inference_batch[step:stop]
             action = actions[step:stop]
@@ -225,15 +245,19 @@ class BatchedAgentManager(object):
 
                 parent_end, fd, events, proc_id = key
                 process, parent_end, child_endpoint = self.processes[proc_id]
-                n_collected += self._collect_response(proc_id, parent_end, collected_metrics, obs_mean, obs_std)
+                n_collected += self._collect_response(
+                    proc_id, parent_end, collected_metrics, obs_mean, obs_std
+                )
 
         return collected_metrics, n_collected
 
-    def _collect_response(self, proc_id, parent_end, collected_metrics, obs_mean, obs_std):
-        available_data = parent_end.recv(8192)
+    def _collect_response(
+        self, proc_id, parent_end, collected_metrics, obs_mean, obs_std
+    ):
+        available_data = parent_end.recv(PACKET_MAX_SIZE)
         message = np.frombuffer(available_data, dtype=np.float32)
-        header = message[:comm_consts.HEADER_LEN]
-        message = message[comm_consts.HEADER_LEN:]
+        header = message[: comm_consts.HEADER_LEN]
+        message = message[comm_consts.HEADER_LEN :]
 
         if header[0] == comm_consts.ENV_STEP_DATA_HEADER[0]:
             prev_n_agents = int(message[0])
@@ -243,39 +267,50 @@ class BatchedAgentManager(object):
             metrics_len = int(message[3])
             metrics_shape = []
             n_metrics = 1 if metrics_len != 0 else 0
-            for arg in message[4:4+metrics_len]:
+            for arg in message[4 : 4 + metrics_len]:
                 n_metrics *= arg
                 metrics_shape.append(int(arg))
             n_metrics = int(n_metrics)
 
-            state_shape_start = 4+metrics_len
+            state_shape_start = 4 + metrics_len
             if n_elements_in_state_shape == 1:
-
                 state_shape = [1, int(message[state_shape_start])]
             else:
-
-                state_shape = [int(arg) for arg in message[state_shape_start:state_shape_start + n_elements_in_state_shape]]
+                state_shape = [
+                    int(arg)
+                    for arg in message[
+                        state_shape_start : state_shape_start
+                        + n_elements_in_state_shape
+                    ]
+                ]
 
             rew_start = state_shape_start + n_elements_in_state_shape
             rew_end = rew_start + prev_n_agents
             rews = message[rew_start:rew_end]
 
             if metrics_len != 0:
-                metrics = np.reshape(message[rew_end:rew_end+n_metrics], metrics_shape)
+                metrics = np.reshape(
+                    message[rew_end : rew_end + n_metrics], metrics_shape
+                )
             else:
                 metrics = []
 
             collected_metrics.append(metrics)
-            next_observation = np.reshape(message[rew_end+n_metrics:], state_shape)
+            next_observation = np.reshape(message[rew_end + n_metrics :], state_shape)
 
             if self.standardize_obs:
-                if self.steps_since_obs_stats_update > self.steps_per_obs_stats_increment:
+                if (
+                    self.steps_since_obs_stats_update
+                    > self.steps_per_obs_stats_increment
+                ):
                     self.obs_stats.increment(next_observation, state_shape[0])
                     self.steps_since_obs_stats_update = 0
                 else:
                     self.steps_since_obs_stats_update += 1
 
-                next_observation = np.clip((next_observation - obs_mean) / obs_std, a_min=-5, a_max=5)
+                next_observation = np.clip(
+                    (next_observation - obs_mean) / obs_std, a_min=-5, a_max=5
+                )
 
             if prev_n_agents > 1:
                 n_collected = prev_n_agents
@@ -322,21 +357,21 @@ class BatchedAgentManager(object):
         for proc_id, proc_package in self.processes.items():
             process, parent_end, child_endpoint = proc_package
 
-            available_data = parent_end.recv(8192)
+            available_data = parent_end.recv(PACKET_MAX_SIZE)
             message = comm_consts.unpack_message(available_data)
 
-            header = message[:comm_consts.HEADER_LEN]
-            data = message[comm_consts.HEADER_LEN:]
-
+            header = message[: comm_consts.HEADER_LEN]
             if header == comm_consts.ENV_RESET_STATE_HEADER:
                 self.current_pids.append(proc_id)
 
+                data = message[comm_consts.HEADER_LEN :]
+
                 n_elements_in_state_shape = int(data[0])
-                shape = [int(arg) for arg in data[1:1+n_elements_in_state_shape]]
+                shape = [int(arg) for arg in data[1 : 1 + n_elements_in_state_shape]]
                 if n_elements_in_state_shape == 1:
                     shape = [1, shape[0]]
 
-                obs = np.reshape(data[1+n_elements_in_state_shape:], shape)
+                obs = np.reshape(data[1 + n_elements_in_state_shape :], shape)
                 if self.standardize_obs:
                     if self.obs_stats is None:
                         self.obs_stats = WelfordRunningStat(shape=shape[-1])
@@ -358,12 +393,12 @@ class BatchedAgentManager(object):
         done = False
 
         while not done:
-            available_data = parent_end.recv(4096)
+            available_data = parent_end.recv(PACKET_MAX_SIZE)
             message = comm_consts.unpack_message(available_data)
-            header = message[:comm_consts.HEADER_LEN]
-            data = message[comm_consts.HEADER_LEN:]
-
+            header = message[: comm_consts.HEADER_LEN]
             if header == comm_consts.ENV_SHAPES_HEADER:
+                data = message[comm_consts.HEADER_LEN :]
+
                 obs_shape, action_shape, action_space_type = data
                 done = True
 
@@ -396,7 +431,7 @@ class BatchedAgentManager(object):
         self.n_procs = n_processes
 
         # Spawn child processes
-        for i in range(n_processes):
+        for i in tqdm(range(n_processes)):
             render_this_proc = i == 0 and render
 
             # Create socket to communicate with child
@@ -405,7 +440,13 @@ class BatchedAgentManager(object):
 
             process = context.Process(
                 target=batched_agent_process,
-                args=(i, parent_end.getsockname(), self.seed + i, render_this_proc, render_delay)
+                args=(
+                    i,
+                    parent_end.getsockname(),
+                    self.seed + i,
+                    render_this_proc,
+                    render_delay,
+                ),
             )
             process.start()
 
@@ -440,23 +481,29 @@ class BatchedAgentManager(object):
         Clean up resources and terminate processes.
         """
         import traceback
+
         for proc_id, proc_package in self.processes.items():
             process, parent_end, child_endpoint = proc_package
 
             try:
-                parent_end.sendto(comm_consts.pack_message(comm_consts.STOP_MESSAGE_HEADER), child_endpoint)
-            except:
+                parent_end.sendto(
+                    comm_consts.pack_message(comm_consts.STOP_MESSAGE_HEADER),
+                    child_endpoint,
+                )
+            except Exception:
+                print("Unable to join process")
+                traceback.print_exc()
                 print("Failed to send stop signal to child process!")
                 traceback.print_exc()
 
             try:
                 process.join()
-            except:
+            except Exception:
                 print("Unable to join process")
                 traceback.print_exc()
 
             try:
                 parent_end.close()
-            except:
+            except Exception:
                 print("Unable to close parent connection")
                 traceback.print_exc()
