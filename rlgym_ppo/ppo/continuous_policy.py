@@ -85,7 +85,7 @@ class ContinuousPolicy(nn.Module):
             return mean, 1
 
         distribution = Normal(loc=mean, scale=std)
-        action = distribution.sample()
+        action = distribution.sample().clamp(min=-1, max=1)
         log_prob = self.logpdf(action, mean, std)
 
         shape = log_prob.shape
