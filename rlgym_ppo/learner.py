@@ -14,17 +14,17 @@ import os
 import random
 import shutil
 import time
-from typing import Callable, Union, Tuple
+from typing import Callable, Tuple, Union
 
 import numpy as np
 import torch
 import wandb
-from wandb.wandb_run import Run
 from rlgym_sim import gym
+from wandb.wandb_run import Run
 
 from rlgym_ppo.batched_agents import BatchedAgentManager
 from rlgym_ppo.ppo import ExperienceBuffer, PPOLearner
-from rlgym_ppo.util import WelfordRunningStat, reporting, torch_functions, KBHit
+from rlgym_ppo.util import KBHit, WelfordRunningStat, reporting, torch_functions
 
 
 class Learner(object):
@@ -76,7 +76,10 @@ class Learner(object):
         instance_launch_delay: Union[float,None] = None,
         random_seed: int = 123,
         n_checkpoints_to_keep: int = 5,
-        device: str = "auto"):
+        device: str = "auto",
+
+        call_each_iteration: Union[Callable,None] = None
+    ):
         assert (
             env_create_function is not None
         ), "MUST PROVIDE A FUNCTION TO CREATE RLGYM FUNCTIONS TO INITIALIZE RLGYM-PPO"
@@ -124,11 +127,15 @@ class Learner(object):
         )
 
         print("Initializing processes...")
-        collect_metrics_fn = None if metrics_logger is None else self.metrics_logger.collect_metrics
+        collect_metrics_fn = (
+            None if metrics_logger is None else self.metrics_logger.collect_metrics
+        )
         self.agent = BatchedAgentManager(
-            None, min_inference_size=min_inference_size, seed=random_seed,
+            None,
+            min_inference_size=min_inference_size,
+            seed=random_seed,
             standardize_obs=standardize_obs,
-            steps_per_obs_stats_increment=steps_per_obs_stats_increment
+            steps_per_obs_stats_increment=steps_per_obs_stats_increment,
         )
         obs_space_size, act_space_size, action_space_type = self.agent.init_processes(
             n_processes=n_proc,
@@ -176,6 +183,8 @@ class Learner(object):
                 project=project, group=group, name=run_name, reinit=True
             )
             print("Created new wandb run!", self.wandb_run.id)
+
+        self.call_each_iteration = call_each_iteration
         print("Learner successfully initialized!")
 
     def learn(self):
@@ -202,7 +211,9 @@ class Learner(object):
 
         # Class to watch for keyboard hits
         kb = KBHit()
-        print("Press (p) to pause (c) to checkpoint, (q) to checkpoint and quit (after next iteration)\n")
+        print(
+            "Press (p) to pause (c) to checkpoint, (q) to checkpoint and quit (after next iteration)\n"
+        )
 
         # While the number of timesteps we have collected so far is less than the
         # amount we are allowed to collect.
@@ -211,12 +222,17 @@ class Learner(object):
             report = {}
 
             # Collect the desired number of timesteps from our agent.
-            experience, collected_metrics, steps_collected, collection_time = self.agent.collect_timesteps(
-                self.ts_per_epoch
-            )
+            (
+                experience,
+                collected_metrics,
+                steps_collected,
+                collection_time,
+            ) = self.agent.collect_timesteps(self.ts_per_epoch)
 
             if self.metrics_logger is not None:
-                self.metrics_logger.report_metrics(collected_metrics, self.wandb_run, self.agent.cumulative_timesteps)
+                self.metrics_logger.report_metrics(
+                    collected_metrics, self.wandb_run, self.agent.cumulative_timesteps
+                )
 
             # Add the new experience to our buffer and compute the various
             # reinforcement learning quantities we need to
@@ -264,16 +280,15 @@ class Learner(object):
             # q: checkpoint and quit
             if kb.kbhit():
                 c = kb.getch()
-                if c == 'p': # pause
+                if c == "p":  # pause
                     print("Paused, press any key to resume")
-                    while True:
-                        if kb.kbhit():
-                            break
-                if c in ('c', 'q'):
+                    while not kb.kbhit():
+                        pass
+                if c in ("c", "q"):
                     self.save(self.agent.cumulative_timesteps)
-                if c == 'q':
+                if c == "q":
                     return
-                if c in ('c', 'p'):
+                if c in ("c", "p"):
                     print("Resuming...\n")
 
             # Save if we've reached the next checkpoint timestep.
@@ -282,6 +297,10 @@ class Learner(object):
                 self.ts_since_last_save = 0
 
             self.epoch += 1
+
+            # Call the user-specified callback function
+            if callable(self.call_each_iteration):
+                self.call_each_iteration(self)
 
     @torch.no_grad()
     def add_new_experience(self, experience):
@@ -317,7 +336,7 @@ class Learner(object):
             val_preds,
             gamma=self.gae_gamma,
             lmbda=self.gae_lambda,
-            return_std=ret_std, # 1 by default if no standardization is requested
+            return_std=ret_std,  # 1 by default if no standardization is requested
         )
 
         if self.standardize_returns:
@@ -378,7 +397,6 @@ class Learner(object):
             "epoch": self.epoch,
             "ts_since_last_save": self.ts_since_last_save,
             "reward_running_stats": self.return_stats.to_json(),
-
         }
         if self.agent.standardize_obs:
             book_keeping_vars["obs_running_stats"] = self.agent.obs_stats.to_json()
@@ -424,10 +442,10 @@ class Learner(object):
             ]
             self.return_stats.from_json(book_keeping_vars["reward_running_stats"])
 
-            if self.agent.standardize_obs and "obs_running_stats" in book_keeping_vars.keys():
+            if self.agent.standardize_obs and "obs_running_stats" in book_keeping_vars:
                 self.agent.obs_stats = WelfordRunningStat(1)
                 self.agent.obs_stats.from_json(book_keeping_vars["obs_running_stats"])
-            if self.standardize_returns and "reward_running_stats" in book_keeping_vars.keys():
+            if self.standardize_returns and "reward_running_stats" in book_keeping_vars:
                 self.return_stats.from_json(book_keeping_vars["reward_running_stats"])
 
             self.epoch = book_keeping_vars["epoch"]
