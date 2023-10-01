@@ -1,8 +1,12 @@
-def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
+def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, seed, render, render_delay):
     """
     Function to interact with an environment and communicate with the learner through a pipe.
 
+    :param proc_id: Process id
     :param endpoint: Parent endpoint for communication
+    :param shm_buffer: Shared memory buffer
+    :param shm_offset: Shared memory offset
+    :param shm_size: Shared memory size
     :param seed: Seed for environment and action space randomization.
     :param render: Whether the environment will be rendered every timestep.
     :param render_delay: Amount of time in seconds to delay between steps while rendering.
@@ -11,7 +15,6 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
 
     import pickle
     import socket
-    import struct
     import time
 
     import gym
@@ -19,8 +22,15 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
 
     from rlgym_ppo.batched_agents import comm_consts
 
+    def _append_array(array, offset, data):
+        size = data.size if isinstance(data, np.ndarray) else len(data)
+        end = offset + size
+        array[offset:end] = data[:]
+        return end
+
     env = None
     metrics_encoding_function = None
+    shm_view = None
 
     POLICY_ACTIONS_HEADER = comm_consts.POLICY_ACTIONS_HEADER
     ENV_SHAPES_HEADER = comm_consts.ENV_SHAPES_HEADER
@@ -68,7 +78,6 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
     action_buffer = None
     action_slice_size = 0
 
-    pack = struct.pack
     frombuffer = np.frombuffer
 
     prev_n_agents = n_agents
@@ -116,42 +125,27 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
 
                 done = 1.0 if done else 0.0
 
-                obs_buffer = obs.tobytes()
-
                 if metrics_encoding_function is not None:
                     metrics = metrics_encoding_function(info["state"])
                     metrics_shape = [float(arg) for arg in metrics.shape]
-                    metrics_bytes = metrics.tobytes()
-
-                    message_floats = (
-                        [
-                            prev_n_agents,
-                            done,
-                            n_elements_in_state_shape,
-                            len(metrics_shape),
-                        ]
-                        + metrics_shape
-                        + state_shape
-                        + rew
-                    )
-                    packed = pack(f"{len(message_floats)}f", *message_floats)
-                    message_bytes = (
-                        PACKED_ENV_STEP_DATA_HEADER
-                        + packed
-                        + metrics_bytes
-                        + obs_buffer
-                    )
-
                 else:
-                    message_floats = (
-                        [prev_n_agents, done, n_elements_in_state_shape, 0]
-                        + state_shape
-                        + rew
-                    )
-                    packed = pack(f"{len(message_floats)}f", *message_floats)
-                    message_bytes = PACKED_ENV_STEP_DATA_HEADER + packed + obs_buffer
+                    metrics = np.empty(shape=(0,))
+                    metrics_shape = []
 
-                pipe.sendto(message_bytes, endpoint)
+                if shm_view is None:
+                    count = 4 + len(metrics_shape) + len(state_shape) + len(rew) + metrics.size + obs.size
+                    assert(count <= shm_size)
+                    shm_view = np.frombuffer(buffer=shm_buffer, dtype=np.float32, offset=shm_offset, count=count)
+
+                offset = _append_array(shm_view, 0, [prev_n_agents, done, n_elements_in_state_shape, len(metrics_shape)])
+                offset = _append_array(shm_view, offset, metrics_shape)
+                offset = _append_array(shm_view, offset, state_shape)
+                offset = _append_array(shm_view, offset, rew)
+                offset = _append_array(shm_view, offset, metrics)
+                offset = _append_array(shm_view, offset, obs.flatten())
+
+                pipe.sendto(PACKED_ENV_STEP_DATA_HEADER, endpoint)
+
                 if render:
                     env.render()
                     if render_delay is not None:
@@ -183,7 +177,7 @@ def batched_agent_process(proc_id, endpoint, seed, render, render_delay):
                     n_acts,
                     action_space_type,
                 ]
-                pipe.sendto(pack(f"{len(message_floats)}f", *message_floats), endpoint)
+                pipe.sendto(comm_consts.pack_message(message_floats), endpoint)
 
             elif header[0] == STOP_MESSAGE_HEADER[0]:
                 break
