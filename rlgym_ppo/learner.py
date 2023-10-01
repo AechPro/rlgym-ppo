@@ -32,7 +32,7 @@ class Learner(object):
         # fmt: off
         self,
         env_create_function: Callable[...,gym.Gym],
-        metrics_logger = None,
+        metrics_logger=None,
         n_proc: int = 8,
         min_inference_size: int = 80,
         render: bool = False,
@@ -63,7 +63,7 @@ class Learner(object):
 
         log_to_wandb: bool = False,
         load_wandb: bool = True,
-        wandb_run: Union[Run,None] = None,
+        wandb_run: Union[Run, None] = None,
         wandb_project_name: Union[str,None] = None,
         wandb_group_name: Union[str,None] = None,
         wandb_run_name: Union[str,None] = None,
@@ -76,8 +76,9 @@ class Learner(object):
         instance_launch_delay: Union[float,None] = None,
         random_seed: int = 123,
         n_checkpoints_to_keep: int = 5,
-        device: str = "auto",
-        shm_buffer_size: int = 8192):
+        shm_buffer_size: int = 8192,
+        device: str = "auto"):
+
         assert (
             env_create_function is not None
         ), "MUST PROVIDE A FUNCTION TO CREATE RLGYM FUNCTIONS TO INITIALIZE RLGYM-PPO"
@@ -127,7 +128,8 @@ class Learner(object):
         print("Initializing processes...")
         collect_metrics_fn = None if metrics_logger is None else self.metrics_logger.collect_metrics
         self.agent = BatchedAgentManager(
-            None, min_inference_size=min_inference_size, seed=random_seed,
+            None, min_inference_size=min_inference_size,
+            seed=random_seed,
             standardize_obs=standardize_obs,
             steps_per_obs_stats_increment=steps_per_obs_stats_increment
         )
@@ -138,7 +140,7 @@ class Learner(object):
             spawn_delay=instance_launch_delay,
             render=render,
             render_delay=render_delay,
-            shm_buffer_size=shm_buffer_size,
+            shm_buffer_size=shm_buffer_size
         )
         obs_space_size = np.prod(obs_space_size)
         print("Initializing PPO...")
@@ -165,9 +167,7 @@ class Learner(object):
         self.agent.policy = self.ppo_learner.policy
 
         self.wandb_run = wandb_run
-        wandb_loaded = checkpoint_load_folder is not None and self.load(
-            checkpoint_load_folder, load_wandb
-        )
+        wandb_loaded = checkpoint_load_folder is not None and self.load(checkpoint_load_folder, load_wandb)
 
         if log_to_wandb and self.wandb_run is None and not wandb_loaded:
             project = "rlgym-ppo" if wandb_project_name is None else wandb_project_name
@@ -193,6 +193,12 @@ class Learner(object):
 
             print("\n\nLEARNING LOOP ENCOUNTERED AN ERROR\n")
             traceback.print_exc()
+
+            try:
+                self.save(self.agent.cumulative_timesteps)
+            except:
+                print("FAILED TO SAVE ON EXIT")
+
         finally:
             self.cleanup()
 
@@ -250,9 +256,9 @@ class Learner(object):
                 report["Policy Reward"] = np.nan
 
             # Log to wandb and print to the console.
-            reporting.report_metrics(
-                loggable_metrics=report, debug_metrics=None, wandb_run=self.wandb_run
-            )
+            reporting.report_metrics(loggable_metrics=report,
+                                     debug_metrics=None,
+                                     wandb_run=self.wandb_run)
 
             report.clear()
             ppo_report.clear()
@@ -266,7 +272,7 @@ class Learner(object):
             # q: checkpoint and quit
             if kb.kbhit():
                 c = kb.getch()
-                if c == 'p': # pause
+                if c == 'p':  # pause
                     print("Paused, press any key to resume")
                     while True:
                         if kb.kbhit():

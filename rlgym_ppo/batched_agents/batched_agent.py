@@ -104,12 +104,17 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
                         ]
 
                 # print("got actions", action_buffer.shape,"|",n_agents,"|",prev_n_agents)
-                obs, rew, done, info = env.step(action_buffer)
+                step_data = env.step(action_buffer)
+                if len(step_data) == 4:
+                    truncated = False
+                    obs, rew, done, info = step_data
+                else:
+                    obs, rew, done, truncated, info = step_data
 
                 if n_agents == 1:
                     rew = [float(rew)]
 
-                if done:
+                if done or truncated:
                     obs = np.asarray(env.reset(), dtype=np.float32)
                     n_agents = float(obs.shape[0]) if len(obs.shape) > 1 else 1
 
@@ -124,6 +129,7 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
                     obs = obs.astype(np.float32)
 
                 done = 1.0 if done else 0.0
+                truncated = 1.0 if truncated else 0.0
 
                 if metrics_encoding_function is not None:
                     metrics = metrics_encoding_function(info["state"])
@@ -133,11 +139,11 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
                     metrics_shape = []
 
                 if shm_view is None:
-                    count = 4 + len(metrics_shape) + len(state_shape) + len(rew) + metrics.size + obs.size
-                    assert(count <= shm_size)
+                    count = 5 + len(metrics_shape) + len(state_shape) + len(rew) + metrics.size + obs.size
+                    assert(count <= shm_size), "ATTEMPTED TO CREATE AGENT MESSAGE BUFFER LARGER THAN MAXIMUM ALLOWED SIZE"
                     shm_view = np.frombuffer(buffer=shm_buffer, dtype=np.float32, offset=shm_offset, count=count)
 
-                offset = _append_array(shm_view, 0, [prev_n_agents, done, n_elements_in_state_shape, len(metrics_shape)])
+                offset = _append_array(shm_view, 0, [prev_n_agents, done, truncated, n_elements_in_state_shape, len(metrics_shape)])
                 offset = _append_array(shm_view, offset, metrics_shape)
                 offset = _append_array(shm_view, offset, state_shape)
                 offset = _append_array(shm_view, offset, rew)
@@ -191,3 +197,4 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
     finally:
         pipe.close()
         env.close()
+

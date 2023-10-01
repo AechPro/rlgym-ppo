@@ -140,9 +140,10 @@ class BatchedAgentManager(object):
                     trajectory_rewards,
                     trajectory_next_states,
                     trajectory_dones,
+                    trajectory_truncated
                 ) = traj
-                trajectory_truncated = [0 for _ in range(len(trajectory_dones))]
                 trajectory_truncated[-1] = 1 if trajectory_dones[-1] == 0 else 0
+
                 states += trajectory_states
                 actions += trajectory_actions
                 log_probs += trajectory_log_probs
@@ -260,17 +261,18 @@ class BatchedAgentManager(object):
 
         prev_n_agents = int(shm_view[0])
         done = shm_view[1]
-        n_elements_in_state_shape = int(shm_view[2])
+        truncated = shm_view[2]
+        n_elements_in_state_shape = int(shm_view[3])
+        metrics_len = int(shm_view[4])
 
-        metrics_len = int(shm_view[3])
         if metrics_len != 0:
-            metrics_shape = [int(d) for d in shm_view[4 : 4 + metrics_len]]
+            metrics_shape = [int(d) for d in shm_view[5 : 5 + metrics_len]]
             n_metrics = prod(metrics_shape)
         else:
             metrics_shape = (0,)
             n_metrics = 0
 
-        state_shape_start = 4 + metrics_len
+        state_shape_start = 5 + metrics_len
         if n_elements_in_state_shape == 1:
             state_shape = [1, int(shm_view[state_shape_start])]
         else:
@@ -323,7 +325,7 @@ class BatchedAgentManager(object):
             rews = rews[0]
             self.ep_rews[proc_id][0] += rews
 
-        if done:
+        if done or truncated:
             if self.average_reward is None:
                 self.average_reward = self.ep_rews[proc_id][0]
             else:
@@ -339,6 +341,7 @@ class BatchedAgentManager(object):
         self.trajectory_map[proc_id].reward = rews
         self.trajectory_map[proc_id].next_state = next_observation
         self.trajectory_map[proc_id].done = done
+        self.trajectory_map[proc_id].truncated = truncated
 
         if state_shape[0] != prev_n_agents:
             self.completed_trajectories.append(self.trajectory_map[proc_id])

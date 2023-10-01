@@ -43,7 +43,7 @@ class DiscreteFF(nn.Module):
 
     def get_action(self, obs, deterministic=False):
         """
-        Function to the an action and the log of its probability for an observation.
+        Function to get an action and the log of its probability from the policy given an observation.
         :param obs: Observation to act on.
         :param deterministic: Whether the action should be chosen deterministically.
         :return: Chosen action and its logprob.
@@ -54,7 +54,7 @@ class DiscreteFF(nn.Module):
         probs = torch.clamp(probs, min=1e-11, max=1)
 
         if deterministic:
-            return probs.cpu().numpy().argmax(), 1
+            return probs.cpu().numpy().argmax(), 0
 
         action = torch.multinomial(probs, 1, True)
         log_prob = torch.log(probs).gather(-1, action)

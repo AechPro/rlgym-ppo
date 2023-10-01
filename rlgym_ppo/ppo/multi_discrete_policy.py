@@ -17,7 +17,7 @@ class MultiDiscreteFF(nn.Module):
     def __init__(self, input_shape, layer_sizes, device):
         super().__init__()
         self.device = device
-        bins = [3,3,3,3,3,2,2,2]
+        bins = [3, 3, 3, 3, 3, 2, 2, 2]
         n_output_nodes = sum(bins)
         assert len(layer_sizes) != 0, "AT LEAST ONE LAYER MUST BE SPECIFIED TO BUILD THE NEURAL NETWORK!"
         layers = [nn.Linear(input_shape, layer_sizes[0]), nn.ReLU()]
@@ -45,7 +45,7 @@ class MultiDiscreteFF(nn.Module):
 
     def get_action(self, obs, deterministic=False):
         """
-        Function to the an action and the log of its probability for an observation.
+        Function to get an action and the log of its probability from the policy given an observation.
         :param obs: Observation to act on.
         :param deterministic: Whether the action should be chosen deterministically.
         :return: Chosen action and its logprob.
@@ -53,15 +53,15 @@ class MultiDiscreteFF(nn.Module):
 
         logits = self.get_output(obs)
 
-        #TODO not sure how to do this better - very slow atm
+        # TODO not sure how to do this better - very slow atm
         if deterministic:
             start = 0
             action = []
             for split in self.splits:
-                action.append(logits[..., start:start+split].argmax(dim=-1))
+                action.append(logits[..., start:start + split].argmax(dim=-1))
                 start += split
             action = torch.stack(action).cpu().numpy()
-            return action, 1
+            return action, 0
 
         distribution = self.multi_discrete
         distribution.make_distribution(logits)

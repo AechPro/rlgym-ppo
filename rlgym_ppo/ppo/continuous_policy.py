@@ -73,7 +73,7 @@ class ContinuousPolicy(nn.Module):
 
     def get_action(self, obs, summed_probs=True, deterministic=False):
         """
-        Function to get an action and its logprob from the policy for an observation.
+        Function to get an action and the log of its probability from the policy given an observation.
         :param obs: Observation to get an action for.
         :param summed_probs: Whether the resulting log probabilities should be summed along the final axis. Defaults to true.
         :param deterministic: Whether an action should be sampled or the mean should be returned instead.
@@ -81,8 +81,8 @@ class ContinuousPolicy(nn.Module):
         """
         mean, std = self.get_output(obs)
         if deterministic:
-            # The probability of a deterministic action occurring is 1.
-            return mean, 1
+            # The probability of a deterministic action occurring is 1 -> log(1) = 0.
+            return mean, 0
 
         distribution = Normal(loc=mean, scale=std)
         action = distribution.sample().clamp(min=-1, max=1)

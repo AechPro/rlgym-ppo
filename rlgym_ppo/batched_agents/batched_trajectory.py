@@ -17,6 +17,7 @@ class BatchedTrajectory(object):
         self.reward = None
         self.next_state = None
         self.done = None
+        self.truncated = None
         self.complete_timesteps = []
 
     def update(self):
@@ -39,14 +40,15 @@ class BatchedTrajectory(object):
            self.log_prob is not None and\
            self.reward is not None and\
            self.next_state is not None and\
-           self.done is not None:
+           self.done is not None and\
+           self.truncated is not None:
 
             # If there is only a single agent in the match, create a list out of the scalar values.
             if type(self.reward) not in (list, tuple, np.ndarray):
                 self.reward = [self.reward]
 
             # Append timestep data to our sequence and reset all class attributes.
-            self.complete_timesteps.append((self.state, self.action, self.log_prob, self.reward, self.next_state, self.done))
+            self.complete_timesteps.append((self.state, self.action, self.log_prob, self.reward, self.next_state, self.done, self.truncated))
             done = self.done
 
             self.state = None
@@ -84,10 +86,11 @@ class BatchedTrajectory(object):
             log_probs = []
             next_states = []
             dones = []
+            truncateds = []
 
             # Acquire all the timesteps from the current trajectory and append them to our lists.
             for timestep in self.complete_timesteps:
-                state, action, log_prob, reward, next_trajectory_state, done = timestep
+                state, action, log_prob, reward, next_trajectory_state, done, truncated = timestep
 
                 # if the team size has changed insert dummy data into the next state
                 if i >= len(next_trajectory_state):
@@ -102,8 +105,9 @@ class BatchedTrajectory(object):
                 next_states.append(next_state)
                 dones.append(done)
                 rewards.append(reward[i])
+                truncateds.append(truncated)
 
-            trajectories.append([states, actions, log_probs, rewards, next_states, dones])
+            trajectories.append([states, actions, log_probs, rewards, next_states, dones, truncateds])
 
         # Reset our trajectory buffer and return all trajectories.
         self.complete_timesteps = []

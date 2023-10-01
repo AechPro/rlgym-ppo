@@ -97,10 +97,6 @@ class PPOLearner(object):
                     # Compute PPO loss.
                     ratio = torch.exp(log_probs - old_probs)
                     clipped = torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range)
-                    policy_loss = -torch.min(ratio * advantages, clipped * advantages).mean()
-
-                    # Compute value estimator loss.
-                    value_loss = self.value_loss_fn(vals, target_values)
 
                     # Compute KL divergence & clip fraction using SB3 method for reporting.
                     with torch.no_grad():
@@ -112,7 +108,12 @@ class PPOLearner(object):
                         clip_fraction = torch.mean((torch.abs(ratio - 1) > self.clip_range).float()).item()
                         clip_fractions.append(clip_fraction)
 
-                    ppo_loss = policy_loss - entropy * self.ent_coef
+                    policy_loss = -torch.min(ratio * advantages, clipped * advantages).mean()
+
+                    # Compute value estimator loss.
+                    value_loss = self.value_loss_fn(vals, target_values)
+
+                    ppo_loss = (policy_loss - entropy * self.ent_coef) * self.mini_batch_size / self.batch_size
                     ppo_loss.backward()
                     value_loss.backward()
 
@@ -127,25 +128,13 @@ class PPOLearner(object):
                     del old_probs
                     del target_values
 
-                # Division for mini-batching
-                if n_minibatch_iterations > 1:
-                    with torch.no_grad():
-                        for p in self.policy.parameters():
-                            if p.grad is not None:
-                                p.grad.div_(n_minibatch_iterations)
-
-                        for p in self.value_net.parameters():
-                            if p.grad is not None:
-                                p.grad.div_(n_minibatch_iterations)
-
-
                 torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), max_norm=0.5)
                 torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.5)
 
                 self.policy_optimizer.step()
                 self.value_optimizer.step()
-                n_iterations += 1
 
+                n_iterations += 1
 
         if n_iterations == 0:
             n_iterations = 1
@@ -170,6 +159,7 @@ class PPOLearner(object):
 
         # Assemble and return report dictionary.
         self.cumulative_model_updates += n_iterations
+
         report = {
             "PPO Batch Consumption Time": (time.time() - t1) / n_iterations,
             "Cumulative Model Updates": self.cumulative_model_updates,
