@@ -76,7 +76,8 @@ class Learner(object):
         instance_launch_delay: Union[float,None] = None,
         random_seed: int = 123,
         n_checkpoints_to_keep: int = 5,
-        device: str = "auto"):
+        device: str = "auto",
+        shm_buffer_size: int = 8192):
         assert (
             env_create_function is not None
         ), "MUST PROVIDE A FUNCTION TO CREATE RLGYM FUNCTIONS TO INITIALIZE RLGYM-PPO"
@@ -137,6 +138,7 @@ class Learner(object):
             spawn_delay=instance_launch_delay,
             render=render,
             render_delay=render_delay,
+            shm_buffer_size=shm_buffer_size,
         )
         obs_space_size = np.prod(obs_space_size)
         print("Initializing PPO...")
