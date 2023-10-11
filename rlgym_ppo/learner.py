@@ -209,8 +209,12 @@ class Learner(object):
         """
 
         # Class to watch for keyboard hits
-        kb = KBHit()
-        print("Press (p) to pause (c) to checkpoint, (q) to checkpoint and quit (after next iteration)\n")
+        try:
+            kb = KBHit()
+            print("Press (p) to pause (c) to checkpoint, (q) to checkpoint and quit (after next iteration)\n")
+        except:
+            # Disable if error initializing (job not running in a terminal probably)
+            kb = None
 
         # While the number of timesteps we have collected so far is less than the
         # amount we are allowed to collect.
@@ -270,7 +274,7 @@ class Learner(object):
             # p: pause, any key to resume
             # c: checkpoint
             # q: checkpoint and quit
-            if kb.kbhit():
+            if kb is not None and kb.kbhit():
                 c = kb.getch()
                 if c == 'p':  # pause
                     print("Paused, press any key to resume")
