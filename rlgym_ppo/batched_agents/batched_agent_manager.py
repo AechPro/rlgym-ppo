@@ -247,6 +247,7 @@ class BatchedAgentManager(object):
                 n_collected += self._collect_response(
                     proc_id, parent_end, shm_view, collected_metrics, obs_mean, obs_std
                 )
+                # print(n_collected, "|", len(collected_metrics))
 
         return collected_metrics, n_collected
 
@@ -296,8 +297,8 @@ class BatchedAgentManager(object):
             self.shm_cache[proc_id] = (rews, metrics, obs)
 
         rews, metrics, next_observation = self.shm_cache[proc_id]
-
-        collected_metrics.append(metrics)
+        next_observation = next_observation.copy()
+        collected_metrics.append(metrics.copy())
 
         if self.standardize_obs:
             if (
@@ -338,7 +339,7 @@ class BatchedAgentManager(object):
             self.current_pids.append(proc_id)
 
         self.next_obs[proc_id] = next_observation
-        self.trajectory_map[proc_id].reward = rews
+        self.trajectory_map[proc_id].reward = [arg for arg in rews]
         self.trajectory_map[proc_id].next_state = next_observation
         self.trajectory_map[proc_id].done = done
         self.trajectory_map[proc_id].truncated = truncated
