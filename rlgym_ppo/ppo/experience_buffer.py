@@ -10,6 +10,8 @@ Description:
 
 import numpy as np
 import torch
+import time
+
 
 
 class ExperienceBuffer(object):
@@ -80,55 +82,27 @@ class ExperienceBuffer(object):
         self.values = _cat(self.values, torch.as_tensor(values, dtype=torch.float32, device=self.device), self.max_size)
         self.advantages = _cat(self.advantages, torch.as_tensor(advantages, dtype=torch.float32, device=self.device), self.max_size)
 
+    def _get_samples(self, indices):
+        return (self.actions[indices],
+                self.log_probs[indices],
+                self.states[indices],
+                self.values[indices],
+                self.advantages[indices])
+
     def get_all_batches_shuffled(self, batch_size):
         """
-        Function to shuffle all the data in the experience buffer, split it into batches, and return those.
-
-        :param batch_size: The size of each batch.
-        :return: Array containing the shuffled batches.
+        Function to return the experience buffer in shuffled batches. Code taken from the stable-baeselines3 buffer:
+        https://github.com/DLR-RM/stable-baselines3/blob/2ddf015cd9840a2a1675f5208be6eb2e86e4d045/stable_baselines3/common/buffers.py#L482
+        :param batch_size: size of each batch yielded by the generator.
+        :return:
         """
 
-        # A list of indices for each entry in our experience buffer.
-        indices = [i for i in range(self.rewards.shape[0])]
-
-        # Shuffle all the indices.
-        self.rng.shuffle(indices)
-
-        # Access the data we are going to shuffle.
-        acts, probs, rews, obs, next_obs, vals, adv = (
-            self.actions,
-            self.log_probs,
-            self.rewards,
-            self.states,
-            self.next_states,
-            self.values,
-            self.advantages,
-        )
-
-        # Shuffle our data.
-        acts = acts[indices]
-        probs = probs[indices]
-        obs = obs[indices]
-        vals = vals[indices]
-        adv = adv[indices]
-
-        batches = []
-        n = len(acts) // batch_size
-
-        # Split the shuffled data into batches.
-        for i in range(n):
-            start = i * batch_size
-            stop = start + batch_size
-            batches.append(
-                [acts[start:stop],
-                probs[start:stop],
-                obs[start:stop],
-                vals[start:stop],
-                adv[start:stop]]
-            )
-
-        # Return the list of shuffled batches.
-        return batches
+        total_samples = self.rewards.shape[0]
+        indices = self.rng.permutation(total_samples)
+        start_idx = 0
+        while start_idx < total_samples:
+            yield self._get_samples(indices[start_idx: start_idx + batch_size])
+            start_idx += batch_size
 
     def clear(self):
         """

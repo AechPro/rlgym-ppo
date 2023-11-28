@@ -26,7 +26,6 @@ class PPOLearner(object):
         if policy_type == 2:
             self.policy = ContinuousPolicy(obs_space_size, act_space_size*2, policy_layer_sizes, device,
                                            var_min=continuous_var_range[0], var_max=continuous_var_range[1]).to(device)
-
         elif policy_type == 1:
             self.policy = MultiDiscreteFF(obs_space_size, policy_layer_sizes, device).to(device)
         else:
