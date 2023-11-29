@@ -100,7 +100,7 @@ class ExperienceBuffer(object):
         total_samples = self.rewards.shape[0]
         indices = self.rng.permutation(total_samples)
         start_idx = 0
-        while start_idx < total_samples:
+        while start_idx + batch_size < total_samples:
             yield self._get_samples(indices[start_idx: start_idx + batch_size])
             start_idx += batch_size
 
