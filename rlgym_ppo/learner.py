@@ -4,9 +4,8 @@ Author: Matthew Allen
 
 Description:
 The primary algorithm file. The Learner object coordinates timesteps from the workers 
-and sends them to PPO, keeps track
-of the misc. variables and statistics for logging, reports to wandb and the console, 
-and handles checkpointing.
+and sends them to PPO, keeps track of the misc. variables and statistics for logging,
+reports to wandb and the console, and handles checkpointing.
 """
 
 import json
@@ -29,58 +28,58 @@ from rlgym_ppo.util import WelfordRunningStat, reporting, torch_functions, KBHit
 
 class Learner(object):
     def __init__(
-        # fmt: off
-        self,
-        env_create_function: Callable[...,gym.Gym],
-        metrics_logger=None,
-        n_proc: int = 8,
-        min_inference_size: int = 80,
-        render: bool = False,
-        render_delay: float = 0,
+            # fmt: off
+            self,
+            env_create_function: Callable[..., gym.Gym],
+            metrics_logger=None,
+            n_proc: int = 8,
+            min_inference_size: int = 80,
+            render: bool = False,
+            render_delay: float = 0,
 
-        timestep_limit: int = 5_000_000_000,
-        exp_buffer_size: int = 100000,
-        ts_per_iteration: int = 50000,
-        standardize_returns: bool = True,
-        standardize_obs: bool = True,
-        max_returns_per_stats_increment: int = 150,
-        steps_per_obs_stats_increment: int = 5,
+            timestep_limit: int = 5_000_000_000,
+            exp_buffer_size: int = 100000,
+            ts_per_iteration: int = 50000,
+            standardize_returns: bool = True,
+            standardize_obs: bool = True,
+            max_returns_per_stats_increment: int = 150,
+            steps_per_obs_stats_increment: int = 5,
 
-        policy_layer_sizes: Tuple[int,...] = (256, 256, 256),
-        critic_layer_sizes: Tuple[int,...] = (256, 256, 256),
-        continuous_var_range: Tuple[float,...] = (0.1, 1.0),
+            policy_layer_sizes: Tuple[int, ...] = (256, 256, 256),
+            critic_layer_sizes: Tuple[int, ...] = (256, 256, 256),
+            continuous_var_range: Tuple[float, ...] = (0.1, 1.0),
 
-        ppo_epochs: int = 10,
-        ppo_batch_size: int = 50000,
-        ppo_minibatch_size: Union[int, None] = None,
-        ppo_ent_coef: float = 0.005,
-        ppo_clip_range: float = 0.2,
+            ppo_epochs: int = 10,
+            ppo_batch_size: int = 50000,
+            ppo_minibatch_size: Union[int, None] = None,
+            ppo_ent_coef: float = 0.005,
+            ppo_clip_range: float = 0.2,
 
-        gae_lambda: float = 0.95,
-        gae_gamma: float = 0.99,
-        policy_lr: float = 3e-4,
-        critic_lr: float = 3e-4,
+            gae_lambda: float = 0.95,
+            gae_gamma: float = 0.99,
+            policy_lr: float = 3e-4,
+            critic_lr: float = 3e-4,
 
-        log_to_wandb: bool = False,
-        load_wandb: bool = True,
-        wandb_run: Union[Run, None] = None,
-        wandb_project_name: Union[str,None] = None,
-        wandb_group_name: Union[str,None] = None,
-        wandb_run_name: Union[str,None] = None,
+            log_to_wandb: bool = False,
+            load_wandb: bool = True,
+            wandb_run: Union[Run, None] = None,
+            wandb_project_name: Union[str, None] = None,
+            wandb_group_name: Union[str, None] = None,
+            wandb_run_name: Union[str, None] = None,
 
-        checkpoints_save_folder: Union[str,None] = None,
-        add_unix_timestamp: bool = True,
-        checkpoint_load_folder: Union[str,None] = None,
-        save_every_ts: int = 1_000_000,
+            checkpoints_save_folder: Union[str, None] = None,
+            add_unix_timestamp: bool = True,
+            checkpoint_load_folder: Union[str, None] = None,
+            save_every_ts: int = 1_000_000,
 
-        instance_launch_delay: Union[float,None] = None,
-        random_seed: int = 123,
-        n_checkpoints_to_keep: int = 5,
-        shm_buffer_size: int = 8192,
-        device: str = "auto"):
+            instance_launch_delay: Union[float, None] = None,
+            random_seed: int = 123,
+            n_checkpoints_to_keep: int = 5,
+            shm_buffer_size: int = 8192,
+            device: str = "auto"):
 
         assert (
-            env_create_function is not None
+                env_create_function is not None
         ), "MUST PROVIDE A FUNCTION TO CREATE RLGYM FUNCTIONS TO INITIALIZE RLGYM-PPO"
 
         if checkpoints_save_folder is None:
@@ -107,6 +106,7 @@ class Learner(object):
 
         if device in {"auto", "gpu"} and torch.cuda.is_available():
             self.device = "cuda:0"
+            torch.backends.cudnn.benchmark = True
         elif device == "auto" and not torch.cuda.is_available():
             self.device = "cpu"
         else:
@@ -270,6 +270,7 @@ class Learner(object):
             # p: pause, any key to resume
             # c: checkpoint
             # q: checkpoint and quit
+
             if kb.kbhit():
                 c = kb.getch()
                 if c == 'p':  # pause
@@ -314,6 +315,7 @@ class Learner(object):
 
         # Predict the expected returns at each state.
         val_preds = value_net(val_inp).cpu().flatten().tolist()
+        torch.cuda.empty_cache()
 
         # Compute the desired reinforcement learning quantities.
         ret_std = self.return_stats.std[0] if self.standardize_returns else None
@@ -325,7 +327,7 @@ class Learner(object):
             val_preds,
             gamma=self.gae_gamma,
             lmbda=self.gae_lambda,
-            return_std=ret_std, # 1 by default if no standardization is requested
+            return_std=ret_std,  # 1 by default if no standardization is requested
         )
 
         if self.standardize_returns:

@@ -33,5 +33,4 @@ class ValueEstimator(nn.Module):
             if t != np.array:
                 x = np.asarray(x)
             x = torch.as_tensor(x, dtype=torch.float32, device=self.device)
-
         return self.model(x)

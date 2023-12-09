@@ -23,6 +23,9 @@ class PPOLearner(object):
                  device):
 
         self.device = device
+
+        assert batch_size % mini_batch_size == 0, "MINIBATCH SIZE MUST BE AN INTEGER MULTIPLE OF BATCH SIZE"
+
         if policy_type == 2:
             self.policy = ContinuousPolicy(obs_space_size, act_space_size*2, policy_layer_sizes, device,
                                            var_min=continuous_var_range[0], var_max=continuous_var_range[1]).to(device)
@@ -30,10 +33,10 @@ class PPOLearner(object):
             self.policy = MultiDiscreteFF(obs_space_size, policy_layer_sizes, device).to(device)
         else:
             self.policy = DiscreteFF(obs_space_size, act_space_size, policy_layer_sizes, device).to(device)
-
-        self.mini_batch_size=mini_batch_size
-        self.policy_optimizer = torch.optim.Adam(self.policy.parameters(), lr=policy_lr)
         self.value_net = ValueEstimator(obs_space_size, critic_layer_sizes, device).to(device)
+        self.mini_batch_size = mini_batch_size
+
+        self.policy_optimizer = torch.optim.Adam(self.policy.parameters(), lr=policy_lr)
         self.value_optimizer = torch.optim.Adam(self.value_net.parameters(), lr=critic_lr)
         self.value_loss_fn = torch.nn.MSELoss()
 
@@ -53,6 +56,7 @@ class PPOLearner(object):
         Returns:
             dict: Dictionary containing training report metrics.
         """
+
         n_iterations = 0
         n_minibatch_iterations = 0
         mean_entropy = 0
@@ -104,28 +108,20 @@ class PPOLearner(object):
                         kl = kl.mean().detach().cpu().item()
 
                         # From the stable-baselines3 implementation of PPO.
-                        clip_fraction = torch.mean((torch.abs(ratio - 1) > self.clip_range).float()).item()
+                        clip_fraction = torch.mean((torch.abs(ratio - 1) > self.clip_range).float()).cpu().item()
                         clip_fractions.append(clip_fraction)
 
                     policy_loss = -torch.min(ratio * advantages, clipped * advantages).mean()
-
-                    # Compute value estimator loss.
                     value_loss = self.value_loss_fn(vals, target_values)
-
                     ppo_loss = (policy_loss - entropy * self.ent_coef) * self.mini_batch_size / self.batch_size
+
                     ppo_loss.backward()
                     value_loss.backward()
 
-                    mean_val_loss += value_loss.detach().item()
+                    mean_val_loss += value_loss.cpu().detach().item()
                     mean_divergence += kl
-                    mean_entropy += entropy.detach().item()
+                    mean_entropy += entropy.cpu().detach().item()
                     n_minibatch_iterations += 1
-
-                    del acts
-                    del obs
-                    del advantages
-                    del old_probs
-                    del target_values
 
                 torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), max_norm=0.5)
                 torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.5)
@@ -169,6 +165,8 @@ class PPOLearner(object):
             "Policy Update Magnitude": policy_update_magnitude,
             "Value Function Update Magnitude": critic_update_magnitude
         }
+        self.policy_optimizer.zero_grad()
+        self.value_optimizer.zero_grad()
 
         return report
 

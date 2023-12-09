@@ -13,7 +13,6 @@ import torch
 import time
 
 
-
 class ExperienceBuffer(object):
     @staticmethod
     def _cat(t1, t2, size):
@@ -52,7 +51,6 @@ class ExperienceBuffer(object):
         self.max_size = max_size
         self.rng = np.random.RandomState(seed)
 
-
     def submit_experience(self, states, actions, log_probs, rewards, next_states, dones, truncated, values, advantages):
         """
         Function to add experience to the buffer.
@@ -69,7 +67,6 @@ class ExperienceBuffer(object):
 
         :return: None
         """
-
 
         _cat = ExperienceBuffer._cat
         self.states = _cat(self.states, torch.as_tensor(states, dtype=torch.float32, device=self.device), self.max_size)
@@ -100,7 +97,7 @@ class ExperienceBuffer(object):
         total_samples = self.rewards.shape[0]
         indices = self.rng.permutation(total_samples)
         start_idx = 0
-        while start_idx + batch_size < total_samples:
+        while start_idx + batch_size <= total_samples:
             yield self._get_samples(indices[start_idx: start_idx + batch_size])
             start_idx += batch_size
 
