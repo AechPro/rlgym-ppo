@@ -1,44 +1,84 @@
-import torch
-import time
-import numpy as np
-from rlgym_ppo.ppo import ContinuousPolicy, DiscreteFF, MultiDiscreteFF, ValueEstimator
 import os
+import time
+
+import numpy as np
+import torch
+
+from rlgym_ppo.ppo import ContinuousPolicy, DiscreteFF, MultiDiscreteFF, ValueEstimator
 
 
 class PPOLearner(object):
-    def __init__(self,
-                 obs_space_size,
-                 act_space_size,
-                 policy_type,
-                 policy_layer_sizes,
-                 critic_layer_sizes,
-                 continuous_var_range,
-                 batch_size,
-                 n_epochs,
-                 policy_lr,
-                 critic_lr,
-                 clip_range,
-                 ent_coef,
-                 mini_batch_size,
-                 device):
-
+    def __init__(
+        self,
+        obs_space_size,
+        act_space_size,
+        policy_type,
+        policy_layer_sizes,
+        critic_layer_sizes,
+        continuous_var_range,
+        batch_size,
+        n_epochs,
+        policy_lr,
+        critic_lr,
+        clip_range,
+        ent_coef,
+        mini_batch_size,
+        device,
+    ):
         self.device = device
 
-        assert batch_size % mini_batch_size == 0, "MINIBATCH SIZE MUST BE AN INTEGER MULTIPLE OF BATCH SIZE"
+        assert (
+            batch_size % mini_batch_size == 0
+        ), "MINIBATCH SIZE MUST BE AN INTEGER MULTIPLE OF BATCH SIZE"
 
         if policy_type == 2:
-            self.policy = ContinuousPolicy(obs_space_size, act_space_size*2, policy_layer_sizes, device,
-                                           var_min=continuous_var_range[0], var_max=continuous_var_range[1]).to(device)
+            self.policy = ContinuousPolicy(
+                obs_space_size,
+                act_space_size * 2,
+                policy_layer_sizes,
+                device,
+                var_min=continuous_var_range[0],
+                var_max=continuous_var_range[1],
+            ).to(device)
         elif policy_type == 1:
-            self.policy = MultiDiscreteFF(obs_space_size, policy_layer_sizes, device).to(device)
+            self.policy = MultiDiscreteFF(
+                obs_space_size, policy_layer_sizes, device
+            ).to(device)
         else:
-            self.policy = DiscreteFF(obs_space_size, act_space_size, policy_layer_sizes, device).to(device)
-        self.value_net = ValueEstimator(obs_space_size, critic_layer_sizes, device).to(device)
+            self.policy = DiscreteFF(
+                obs_space_size, act_space_size, policy_layer_sizes, device
+            ).to(device)
+        self.value_net = ValueEstimator(obs_space_size, critic_layer_sizes, device).to(
+            device
+        )
         self.mini_batch_size = mini_batch_size
 
         self.policy_optimizer = torch.optim.Adam(self.policy.parameters(), lr=policy_lr)
-        self.value_optimizer = torch.optim.Adam(self.value_net.parameters(), lr=critic_lr)
+        self.value_optimizer = torch.optim.Adam(
+            self.value_net.parameters(), lr=critic_lr
+        )
         self.value_loss_fn = torch.nn.MSELoss()
+
+        # Calculate parameter counts
+        policy_params = self.policy.parameters()
+        critic_params = self.value_net.parameters()
+
+        trainable_policy_parameters = filter(lambda p: p.requires_grad, policy_params)
+        policy_params_count = sum(p.numel() for p in trainable_policy_parameters)
+
+        trainable_critic_parameters = filter(lambda p: p.requires_grad, critic_params)
+        critic_params_count = sum(p.numel() for p in trainable_critic_parameters)
+
+        total_parameters = policy_params_count + critic_params_count
+
+        # Display in a structured manner
+        print("Trainable Parameters:")
+        print(f"{'Component':<10} {'Count':<10}")
+        print("-" * 20)
+        print(f"{'Policy':<10} {policy_params_count:<10}")
+        print(f"{'Critic':<10} {critic_params_count:<10}")
+        print("-" * 20)
+        print(f"{'Total':<10} {total_parameters:<10}")
 
         self.n_epochs = n_epochs
         self.batch_size = batch_size
@@ -65,16 +105,25 @@ class PPOLearner(object):
         clip_fractions = []
 
         # Save parameters before computing any updates.
-        policy_before = torch.nn.utils.parameters_to_vector(self.policy.parameters()).cpu()
-        critic_before = torch.nn.utils.parameters_to_vector(self.value_net.parameters()).cpu()
+        policy_before = torch.nn.utils.parameters_to_vector(
+            self.policy.parameters()
+        ).cpu()
+        critic_before = torch.nn.utils.parameters_to_vector(
+            self.value_net.parameters()
+        ).cpu()
 
         t1 = time.time()
         for epoch in range(self.n_epochs):
-
             # Get all shuffled batches from the experience buffer.
             batches = exp.get_all_batches_shuffled(self.batch_size)
             for batch in batches:
-                batch_acts, batch_old_probs, batch_obs, batch_target_values, batch_advantages = batch
+                (
+                    batch_acts,
+                    batch_old_probs,
+                    batch_obs,
+                    batch_target_values,
+                    batch_advantages,
+                ) = batch
                 batch_acts = batch_acts.view(self.batch_size, -1)
                 self.policy_optimizer.zero_grad()
                 self.value_optimizer.zero_grad()
@@ -99,7 +148,9 @@ class PPOLearner(object):
 
                     # Compute PPO loss.
                     ratio = torch.exp(log_probs - old_probs)
-                    clipped = torch.clamp(ratio, 1.0 - self.clip_range, 1.0 + self.clip_range)
+                    clipped = torch.clamp(
+                        ratio, 1.0 - self.clip_range, 1.0 + self.clip_range
+                    )
 
                     # Compute KL divergence & clip fraction using SB3 method for reporting.
                     with torch.no_grad():
@@ -108,12 +159,22 @@ class PPOLearner(object):
                         kl = kl.mean().detach().cpu().item()
 
                         # From the stable-baselines3 implementation of PPO.
-                        clip_fraction = torch.mean((torch.abs(ratio - 1) > self.clip_range).float()).cpu().item()
+                        clip_fraction = (
+                            torch.mean((torch.abs(ratio - 1) > self.clip_range).float())
+                            .cpu()
+                            .item()
+                        )
                         clip_fractions.append(clip_fraction)
 
-                    policy_loss = -torch.min(ratio * advantages, clipped * advantages).mean()
+                    policy_loss = -torch.min(
+                        ratio * advantages, clipped * advantages
+                    ).mean()
                     value_loss = self.value_loss_fn(vals, target_values)
-                    ppo_loss = (policy_loss - entropy * self.ent_coef) * self.mini_batch_size / self.batch_size
+                    ppo_loss = (
+                        (policy_loss - entropy * self.ent_coef)
+                        * self.mini_batch_size
+                        / self.batch_size
+                    )
 
                     ppo_loss.backward()
                     value_loss.backward()
@@ -123,7 +184,9 @@ class PPOLearner(object):
                     mean_entropy += entropy.cpu().detach().item()
                     n_minibatch_iterations += 1
 
-                torch.nn.utils.clip_grad_norm_(self.value_net.parameters(), max_norm=0.5)
+                torch.nn.utils.clip_grad_norm_(
+                    self.value_net.parameters(), max_norm=0.5
+                )
                 torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_norm=0.5)
 
                 self.policy_optimizer.step()
@@ -147,8 +210,12 @@ class PPOLearner(object):
             mean_clip = np.mean(clip_fractions)
 
         # Compute magnitude of updates made to the policy and value estimator.
-        policy_after = torch.nn.utils.parameters_to_vector(self.policy.parameters()).cpu()
-        critic_after = torch.nn.utils.parameters_to_vector(self.value_net.parameters()).cpu()
+        policy_after = torch.nn.utils.parameters_to_vector(
+            self.policy.parameters()
+        ).cpu()
+        critic_after = torch.nn.utils.parameters_to_vector(
+            self.value_net.parameters()
+        ).cpu()
         policy_update_magnitude = (policy_before - policy_after).norm().item()
         critic_update_magnitude = (critic_before - critic_after).norm().item()
 
@@ -163,7 +230,7 @@ class PPOLearner(object):
             "Value Function Loss": mean_val_loss,
             "SB3 Clip Fraction": mean_clip,
             "Policy Update Magnitude": policy_update_magnitude,
-            "Value Function Update Magnitude": critic_update_magnitude
+            "Value Function Update Magnitude": critic_update_magnitude,
         }
         self.policy_optimizer.zero_grad()
         self.value_optimizer.zero_grad()
@@ -173,14 +240,32 @@ class PPOLearner(object):
     def save_to(self, folder_path):
         os.makedirs(folder_path, exist_ok=True)
         torch.save(self.policy.state_dict(), os.path.join(folder_path, "PPO_POLICY.pt"))
-        torch.save(self.value_net.state_dict(), os.path.join(folder_path, "PPO_VALUE_NET.pt"))
-        torch.save(self.policy_optimizer.state_dict(), os.path.join(folder_path, "PPO_POLICY_OPTIMIZER.pt"))
-        torch.save(self.value_optimizer.state_dict(), os.path.join(folder_path, "PPO_VALUE_NET_OPTIMIZER.pt"))
+        torch.save(
+            self.value_net.state_dict(), os.path.join(folder_path, "PPO_VALUE_NET.pt")
+        )
+        torch.save(
+            self.policy_optimizer.state_dict(),
+            os.path.join(folder_path, "PPO_POLICY_OPTIMIZER.pt"),
+        )
+        torch.save(
+            self.value_optimizer.state_dict(),
+            os.path.join(folder_path, "PPO_VALUE_NET_OPTIMIZER.pt"),
+        )
 
     def load_from(self, folder_path):
-        assert os.path.exists(folder_path), "PPO LEARNER CANNOT FIND FOLDER {}".format(folder_path)
+        assert os.path.exists(folder_path), "PPO LEARNER CANNOT FIND FOLDER {}".format(
+            folder_path
+        )
 
-        self.policy.load_state_dict(torch.load(os.path.join(folder_path, "PPO_POLICY.pt")))
-        self.value_net.load_state_dict(torch.load(os.path.join(folder_path, "PPO_VALUE_NET.pt")))
-        self.policy_optimizer.load_state_dict(torch.load(os.path.join(folder_path, "PPO_POLICY_OPTIMIZER.pt")))
-        self.value_optimizer.load_state_dict(torch.load(os.path.join(folder_path, "PPO_VALUE_NET_OPTIMIZER.pt")))
+        self.policy.load_state_dict(
+            torch.load(os.path.join(folder_path, "PPO_POLICY.pt"))
+        )
+        self.value_net.load_state_dict(
+            torch.load(os.path.join(folder_path, "PPO_VALUE_NET.pt"))
+        )
+        self.policy_optimizer.load_state_dict(
+            torch.load(os.path.join(folder_path, "PPO_POLICY_OPTIMIZER.pt"))
+        )
+        self.value_optimizer.load_state_dict(
+            torch.load(os.path.join(folder_path, "PPO_VALUE_NET_OPTIMIZER.pt"))
+        )
