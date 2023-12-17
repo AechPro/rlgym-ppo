@@ -11,7 +11,7 @@ import torch
 import functools
 import os
 import json
-
+import wandb
 
 class WelfordRunningStat(object):
     """
@@ -112,6 +112,9 @@ class WelfordRunningStat(object):
         self.running_variance = np.reshape(other_var, self.shape)
         self.count = other_count
 
+    def wandb_config_to_json(self, config: wandb.Config):
+        return config.as_dict()
+
     def to_json(self):
         return {"mean":self.running_mean.ravel().tolist(),
                 "var":self.running_variance.ravel().tolist(),
@@ -123,7 +126,7 @@ class WelfordRunningStat(object):
         self.count = other_json["count"]
         self.running_mean = np.asarray(other_json["mean"]).reshape(shape)
         self.running_variance = np.asarray(other_json["var"]).reshape(shape)
-        print("LOADED RUNNING STATS FROM JSON",self.running_mean, self.running_variance, self.count)
+        print(F"LOADED RUNNING STATS FROM JSON | Mean: {self.running_mean} | Variance: {self.running_variance} | Count: {self.count}")
 
     def save(self, directory):
         full_path = os.path.join(directory, "RUNNING_STATS.json")
@@ -136,4 +139,3 @@ class WelfordRunningStat(object):
         with open(full_path, 'r') as f:
             json_data = dict(json.load(f))
             self.from_json(json_data)
-
