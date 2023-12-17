@@ -422,7 +422,7 @@ class Learner(object):
             book_keeping_vars["wandb_project"] = self.wandb_run.project
             book_keeping_vars["wandb_entity"] = self.wandb_run.entity
             book_keeping_vars["wandb_group"] = self.wandb_run.group
-            book_keeping_vars["wandb_config"] = self.return_stats.wandb_config_to_json(self.wandb_run.config)
+            book_keeping_vars["wandb_config"] = self.wandb_run.config.as_dict()
 
         book_keeping_table_path = os.path.join(folder_path, "BOOK_KEEPING_VARS.json")
         with open(book_keeping_table_path, "w") as f:
