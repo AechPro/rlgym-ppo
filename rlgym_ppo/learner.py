@@ -166,6 +166,28 @@ class Learner(object):
 
         self.agent.policy = self.ppo_learner.policy
 
+        self.config = {
+            "n_proc": n_proc,
+            "min_inference_size": min_inference_size,
+            "timestep_limit": timestep_limit,
+            "exp_buffer_size": exp_buffer_size,
+            "ts_per_iteration": ts_per_iteration,
+            "standardize_returns": standardize_returns,
+            "standardize_obs": standardize_obs,
+            "policy_layer_sizes": policy_layer_sizes,
+            "critic_layer_sizes": critic_layer_sizes,
+            "ppo_epochs": ppo_epochs,
+            "ppo_batch_size": ppo_batch_size,
+            "ppo_minibatch_size": ppo_minibatch_size,
+            "ppo_ent_coef": ppo_ent_coef,
+            "ppo_clip_range": ppo_clip_range,
+            "gae_lambda": gae_lambda,
+            "gae_gamma": gae_gamma,
+            "policy_lr": policy_lr,
+            "critic_lr": critic_lr,
+            "shm_buffer_size": shm_buffer_size,
+        }
+
         self.wandb_run = wandb_run
         wandb_loaded = checkpoint_load_folder is not None and self.load(checkpoint_load_folder, load_wandb)
 
@@ -175,7 +197,7 @@ class Learner(object):
             run_name = "rlgym-ppo-run" if wandb_run_name is None else wandb_run_name
             print("Attempting to create new wandb run...")
             self.wandb_run = wandb.init(
-                project=project, group=group, name=run_name, reinit=True
+                project=project, group=group, config=self.config, name=run_name, reinit=True
             )
             print("Created new wandb run!", self.wandb_run.id)
         print("Learner successfully initialized!")
@@ -400,6 +422,7 @@ class Learner(object):
             book_keeping_vars["wandb_project"] = self.wandb_run.project
             book_keeping_vars["wandb_entity"] = self.wandb_run.entity
             book_keeping_vars["wandb_group"] = self.wandb_run.group
+            book_keeping_vars["wandb_config"] = self.wandb_run.config.as_dict()
 
         book_keeping_table_path = os.path.join(folder_path, "BOOK_KEEPING_VARS.json")
         with open(book_keeping_table_path, "w") as f:
@@ -451,6 +474,7 @@ class Learner(object):
                     project=book_keeping_vars["wandb_project"],
                     group=book_keeping_vars["wandb_group"],
                     id=book_keeping_vars["wandb_run_id"],
+                    config=book_keeping_vars["wandb_config"],
                     resume="allow",
                     reinit=True,
                 )
