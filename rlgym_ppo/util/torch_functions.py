@@ -76,7 +76,6 @@ def compute_gae(rews, dones, truncated, values, gamma=0.99, lmbda=0.95, return_s
         last_return = ret
         last_gae_lam = delta + gamma * lmbda * done * last_gae_lam
         adv[step] = last_gae_lam
-        last_gae_lam *= trunc
 
 
     advantages = torch.as_tensor(adv, dtype=torch.float32)
