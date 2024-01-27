@@ -289,8 +289,8 @@ class BatchedAgentManager(object):
         rew_end = rew_start + prev_n_agents
 
         shm_shapes = self.shm_shapes[proc_id]
-        if shm_shapes is None or shm_shapes != (metrics_shape, state_shape):
-            self.shm_shapes[proc_id] = (metrics_shape, state_shape)
+        if shm_shapes is None or shm_shapes != (metrics_shape, state_shape, prev_n_agents):
+            self.shm_shapes[proc_id] = (metrics_shape, state_shape, prev_n_agents)
             rews = np.reshape(shm_view[rew_start : rew_end], (rew_end - rew_start,))
             metrics = np.reshape(shm_view[rew_end : rew_end + n_metrics], metrics_shape)
             obs = np.reshape(shm_view[rew_end + n_metrics : rew_end + n_metrics + prod(state_shape)], state_shape)
