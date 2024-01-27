@@ -31,6 +31,7 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
     env = None
     metrics_encoding_function = None
     shm_view = None
+    shm_shapes = None
 
     POLICY_ACTIONS_HEADER = comm_consts.POLICY_ACTIONS_HEADER
     ENV_SHAPES_HEADER = comm_consts.ENV_SHAPES_HEADER
@@ -138,7 +139,8 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
                     metrics = np.empty(shape=(0,))
                     metrics_shape = []
 
-                if shm_view is None:
+                if shm_view is None or shm_shapes != (prev_n_agents, n_agents):
+                    shm_shapes = (prev_n_agents, n_agents)
                     count = 5 + len(metrics_shape) + len(state_shape) + len(rew) + metrics.size + obs.size
                     assert(count <= shm_size), "ATTEMPTED TO CREATE AGENT MESSAGE BUFFER LARGER THAN MAXIMUM ALLOWED SIZE"
                     shm_view = np.frombuffer(buffer=shm_buffer, dtype=np.float32, offset=shm_offset, count=count)
