@@ -323,8 +323,7 @@ class BatchedAgentManager(object):
                     self.ep_rews[proc_id][i] += rews[i]
         else:
             n_collected = 1
-            rews = rews[0]
-            self.ep_rews[proc_id][0] += rews
+            self.ep_rews[proc_id][0] += rews[0]
 
         if done or truncated:
             if self.average_reward is None:
