@@ -26,14 +26,6 @@ class BatchedTrajectory(object):
         :return: None.
         """
 
-        # print("checking trajectory",
-        #       self.state is not None,
-        #       self.action is not None,
-        #       self.log_prob is not None,
-        #       self.reward is not None,
-        #       self.next_state is not None,
-        #       self.done is not None)
-
         # If every class attribute is populated
         if self.state is not None and\
            self.action is not None and\
@@ -98,7 +90,6 @@ class BatchedTrajectory(object):
                 else:
                     next_state = next_trajectory_state[i]
 
-                # print(len(state), n_trajectories, i)
                 states.append(state[i])
                 actions.append(action[i])
                 log_probs.append(log_prob[i])

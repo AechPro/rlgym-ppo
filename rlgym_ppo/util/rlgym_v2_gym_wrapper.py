@@ -69,7 +69,7 @@ class RLGymV2GymWrapper(object):
         return self.obs_buffer, rews, done, truncated, info
 
     def render(self):
-        pass
+        self.rlgym_env.render()
 
     def seed(self, seed):
         pass
