@@ -79,6 +79,9 @@ class PPOLearner(object):
         print(f"{'Critic':<10} {critic_params_count:<10}")
         print("-" * 20)
         print(f"{'Total':<10} {total_parameters:<10}")
+        
+        print(f"Current Policy Learning Rate: {policy_lr}")
+        print(f"Current Critic Learning Rate: {critic_lr}")
 
         self.n_epochs = n_epochs
         self.batch_size = batch_size

@@ -206,14 +206,12 @@ class Learner(object):
         if new_policy_lr is not None:
             self.policy_lr = new_policy_lr
             for param_group in self.ppo_learner.policy_optimizer.param_groups:
-                print(f"Current policy learning rate: {param_group['lr']}")
                 param_group['lr'] = new_policy_lr
             print(f"New policy learning rate: {new_policy_lr}")
 
         if new_critic_lr is not None:
             self.critic_lr = new_critic_lr
             for param_group in self.ppo_learner.value_optimizer.param_groups:
-                print(f"Current critic learning rate: {param_group['lr']}")
                 param_group['lr'] = new_critic_lr
             print(f"New policy learning rate: {new_policy_lr}")
 
