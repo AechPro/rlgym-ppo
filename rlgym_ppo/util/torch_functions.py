@@ -48,7 +48,6 @@ def compute_gae(rews, dones, truncated, values, gamma=0.99, lmbda=0.95, return_s
     :return: Bootstrapped value function estimates, GAE results, returns.
     """
     next_values = values[1:]
-    terminal = dones
 
     last_gae_lam = 0
     n_returns = len(rews)
@@ -57,8 +56,8 @@ def compute_gae(rews, dones, truncated, values, gamma=0.99, lmbda=0.95, return_s
     last_return = 0
 
     for step in reversed(range(n_returns)):
-        not_done = 1 - terminal[step]
-        not_trunc = 1 - not_truncated[step]
+        not_done = 1 - dones[step]
+        not_trunc = 1 - truncated[step]
 
         if return_std is not None:
             norm_rew = min(max(rews[step] / return_std, -10), 10)
@@ -67,10 +66,10 @@ def compute_gae(rews, dones, truncated, values, gamma=0.99, lmbda=0.95, return_s
 
         pred_ret = norm_rew + gamma * next_values[step] * not_done
         delta = pred_ret - values[step]
-        ret = rews[step] + last_return*gamma*not_done*not_trunc
+        ret = rews[step] + last_return * gamma * not_done * not_trunc
         returns[step] = ret
         last_return = ret
-        last_gae_lam = delta + gamma * lmbda * not_done * last_gae_lam
+        last_gae_lam = delta + gamma * lmbda * not_done * not_trunc * last_gae_lam
         adv[step] = last_gae_lam
 
 
