@@ -15,11 +15,11 @@ import shutil
 import time
 from typing import Callable, Union, Tuple
 
+import gym
 import numpy as np
 import torch
 import wandb
 from wandb.wandb_run import Run
-from rlgym_sim import gym
 
 from rlgym_ppo.batched_agents import BatchedAgentManager
 from rlgym_ppo.ppo import ExperienceBuffer, PPOLearner
@@ -30,7 +30,7 @@ class Learner(object):
     def __init__(
             # fmt: off
             self,
-            env_create_function: Callable[..., gym.Gym],
+            env_create_function: Callable[..., gym.Env],
             metrics_logger=None,
             n_proc: int = 8,
             min_inference_size: int = 80,

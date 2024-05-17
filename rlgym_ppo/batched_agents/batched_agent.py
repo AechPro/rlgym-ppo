@@ -22,6 +22,16 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
 
     from rlgym_ppo.batched_agents import comm_consts
 
+    if render:
+        try:
+            from rlviser_py import get_game_paused, get_game_speed
+        except ImportError:
+            def get_game_speed() -> float:
+                return 1.0
+
+            def get_game_paused() -> bool:
+                return False
+
     def _append_array(array, offset, data):
         size = data.size if isinstance(data, np.ndarray) else len(data)
         end = offset + size
@@ -157,7 +167,10 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
                 if render:
                     env.render()
                     if render_delay is not None:
-                        time.sleep(render_delay)
+                        time.sleep(render_delay / get_game_speed())
+
+                    while get_game_paused():
+                        time.sleep(0.1)
 
             elif header[0] == ENV_SHAPES_HEADER[0]:
                 t = type(env.action_space)

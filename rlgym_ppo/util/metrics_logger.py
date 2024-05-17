@@ -1,6 +1,11 @@
 from abc import ABC
-from rlgym_sim.utils.gamestates import GameState
+
 import numpy as np
+
+try:
+    from rlgym_sim.utils.gamestates import GameState
+except ImportError:
+    GameState = object
 
 class MetricsLogger(ABC):
     def collect_metrics(self, game_state: GameState) -> np.ndarray:
