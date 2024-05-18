@@ -10,8 +10,8 @@ class RLGymV2GymWrapper(gym.Env):
         print('WARNING: CALLING ENV.RESET() ONE EXTRA TIME TO DETERMINE STATE AND ACTION SPACES')
         obs_dict = rlgym_env.reset()
         obs_list = list(obs_dict.values())
-        act_space = list(rlgym_env.action_spaces.values())[0]
-        obs_space = list(rlgym_env.observation_spaces.values())[0]
+        act_space = list(rlgym_env.action_spaces.values())[0][1]
+        obs_space = list(rlgym_env.observation_spaces.values())[0][1]
 
         self.is_discrete = False
         if type(act_space) == int:
@@ -20,7 +20,7 @@ class RLGymV2GymWrapper(gym.Env):
         else:
             self.action_space = None
 
-        if type(obs_space) == int:
+        if type(obs_space) == int and obs_space > 0:
             self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(obs_space, ))
         else:
             if obs_list:
