@@ -2,7 +2,7 @@ import gym
 import numpy as np
 
 
-class RLGymV2GymWrapper(gym.Env):
+class RLGymV2GymWrapper(object):
     def __init__(self, rlgym_env):
         self.rlgym_env = rlgym_env
         self.agent_map = {}

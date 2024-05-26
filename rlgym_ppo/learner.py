@@ -13,9 +13,8 @@ import os
 import random
 import shutil
 import time
-from typing import Callable, Union, Tuple
+from typing import Union, Tuple
 
-import gym
 import numpy as np
 import torch
 import wandb
@@ -30,7 +29,7 @@ class Learner(object):
     def __init__(
             # fmt: off
             self,
-            env_create_function: Callable[..., gym.Env],
+            env_create_function,
             metrics_logger=None,
             n_proc: int = 8,
             min_inference_size: int = 80,
