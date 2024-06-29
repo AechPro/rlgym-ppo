@@ -454,11 +454,9 @@ class Learner(object):
         """
 
         if folder_path == "latest":
-            print("loading latest")
             save_folder = self.checkpoints_save_folder
             if save_folder is None:
                 # No save folder to load from
-                print("1")
                 return
 
             if self.add_unix_timestamp:
