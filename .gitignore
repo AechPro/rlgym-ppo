@@ -157,3 +157,6 @@ cython_debug/
 rlgym-ppo.code-workspace
 .vscode/settings.json
 *.code-workspace
+
+# RocketSim collision meshes
+*.cmf
