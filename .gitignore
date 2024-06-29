@@ -160,3 +160,9 @@ rlgym-ppo.code-workspace
 
 # RocketSim collision meshes
 *.cmf
+
+# wandb folder
+wandb/
+
+# Run data folder
+data/
