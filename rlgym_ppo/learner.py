@@ -68,7 +68,7 @@ class Learner(object):
 
             checkpoints_save_folder: Union[str, None] = None,
             add_unix_timestamp: bool = True,
-            checkpoint_load_folder: Union[str, None] = None,
+            checkpoint_load_folder: Union[str, None] = "latest", # "latest" loads latest checkpoint
             save_every_ts: int = 1_000_000,
 
             instance_launch_delay: Union[float, None] = None,
@@ -88,6 +88,7 @@ class Learner(object):
 
         # Add the option for the user to turn off the addition of Unix Timestamps to
         # the ``checkpoints_save_folder`` path
+        self.add_unix_timestamp = add_unix_timestamp
         if add_unix_timestamp:
             checkpoints_save_folder = f"{checkpoints_save_folder}-{time.time_ns()}"
 
@@ -451,6 +452,69 @@ class Learner(object):
         was saved with the checkpoint being loaded.
         :return: None
         """
+
+        if folder_path == "latest":
+            save_folder = self.checkpoints_save_folder
+            if save_folder is None:
+                # No save folder to load from
+                return
+
+            if self.add_unix_timestamp:
+                # Save folder without the unix timestamp
+                base_save_folder = save_folder[:save_folder.rfind('-')]
+                save_path = os.path.dirname(base_save_folder)
+
+                if not os.path.exists(save_path):
+                    # Save path does not exist
+                    return
+
+                # Find folder with our base save path with the highest timestamp
+                highest_timestamp = -1
+                best_folder = None
+                for filename in os.listdir(save_path):
+                    full_path = os.path.join(save_path, filename)
+                    if not os.path.isdir(full_path):
+                        continue
+
+                    if full_path.startswith(base_save_folder):
+                        unix_start_idx = full_path.rfind('-') + 1
+                        if unix_start_idx > 0:
+                            unix_time_str = filename[unix_start_idx:]
+                            if unix_time_str.isdigit():
+                                timestamp = int(unix_time_str)
+                                if timestamp > highest_timestamp:
+                                    highest_timestamp = timestamp
+                                    best_folder = full_path
+
+                if not (best_folder is None):
+                    load_base_path = best_folder
+                else:
+                    # Failed to find any unix timestamp folders under the right name
+                    return
+            else:
+                if os.path.exists(self.checkpoints_save_folder):
+                    load_base_path = self.checkpoints_save_folder
+                else:
+                    # Save path doesnt exist
+                    return
+
+            # Find folder with the highest timesteps to load
+            highest_ts = -1
+            for filename in os.listdir(load_base_path):
+                if not os.path.isdir(os.path.join(load_base_path, filename)):
+                    continue
+
+                if not filename.isdigit():
+                    continue
+
+                highest_ts = max(highest_ts, int(filename))
+
+            if highest_ts != -1:
+                folder_path = os.path.join(load_base_path, str(highest_ts))
+                print(f"Auto-load path: {folder_path}")
+            else:
+                # No timestep folders found to load
+                return
 
         # Make sure the folder exists.
         assert os.path.exists(folder_path), f"UNABLE TO LOCATE FOLDER {folder_path}"
