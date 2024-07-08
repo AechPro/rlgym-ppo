@@ -95,6 +95,8 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
 
     # Primary interaction loop.
     try:
+        last_render_time = time.time()
+        render_time_compensation = 0
         while True:
             message_bytes = pipe.recv(4096)
             message = frombuffer(message_bytes, dtype=np.float32)
@@ -167,7 +169,15 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
                 if render:
                     env.render()
                     if render_delay is not None:
-                        time.sleep(render_delay / get_game_speed())
+                        render_delta_time = time.time() - last_render_time
+                        last_render_time = time.time()
+
+                        target_delay = render_delay / get_game_speed()
+                        render_time_compensation = np.clip(
+                            render_time_compensation + (target_delay - render_delta_time),
+                            -target_delay, 0)
+                        sleep_delay = max(0, target_delay + render_time_compensation)
+                        time.sleep(sleep_delay)
 
                     while get_game_paused():
                         time.sleep(0.1)
