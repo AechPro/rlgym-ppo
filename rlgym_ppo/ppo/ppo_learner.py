@@ -172,12 +172,9 @@ class PPOLearner(object):
                     policy_loss = -torch.min(
                         ratio * advantages, clipped * advantages
                     ).mean()
-                    value_loss = self.value_loss_fn(vals, target_values)
-                    ppo_loss = (
-                        (policy_loss - entropy * self.ent_coef)
-                        * self.mini_batch_size
-                        / self.batch_size
-                    )
+                    minibatch_ratio = self.mini_batch_size / self.batch_size
+                    value_loss = self.value_loss_fn(vals, target_values) * minibatch_ratio
+                    ppo_loss = (policy_loss - entropy * self.ent_coef) * minibatch_ratio
 
                     ppo_loss.backward()
                     value_loss.backward()
