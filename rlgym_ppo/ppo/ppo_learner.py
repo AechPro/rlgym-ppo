@@ -179,7 +179,7 @@ class PPOLearner(object):
                     ppo_loss.backward()
                     value_loss.backward()
 
-                    mean_val_loss += value_loss.cpu().detach().item()
+                    mean_val_loss += (value_loss / minibatch_ratio).cpu().detach().item()
                     mean_divergence += kl
                     mean_entropy += entropy.cpu().detach().item()
                     n_minibatch_iterations += 1
