@@ -25,7 +25,7 @@ class ExampleLogger(MetricsLogger):
 def build_rocketsim_env():
     import rlgym_sim
     from rlgym_sim.utils.reward_functions import CombinedReward
-    from rlgym_sim.utils.reward_functions.common_rewards import VelocityPlayerToBallReward, VelocityBallToGoalReward, FaceBallReward, \
+    from rlgym_sim.utils.reward_functions.common_rewards import VelocityPlayerToBallReward, VelocityBallToGoalReward, \
         EventReward
     from rlgym_sim.utils.obs_builders import DefaultObs
     from rlgym_sim.utils.terminal_conditions.common_conditions import NoTouchTimeoutCondition, GoalScoredCondition
