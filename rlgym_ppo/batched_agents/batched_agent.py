@@ -124,7 +124,7 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
                 else:
                     obs, rew, done, truncated, info = step_data
 
-                if n_agents == 1 and type(rew) is not List:
+                if n_agents == 1 and type(rew) is not list:
                     rew = [float(rew)]
 
                 if done or truncated:
