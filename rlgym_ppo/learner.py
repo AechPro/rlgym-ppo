@@ -327,6 +327,12 @@ class Learner(object):
 
             self.epoch += 1
 
+        # save checkpoint if timestep limit is hit
+        else:
+            if self.agent.cumulative_timesteps >= self.timestep_limit:
+                print(f"Timestep limit of {self.timestep_limit} reached, saving checkpoint...")
+                self.save(self.agent.cumulative_timesteps)
+    
     @torch.no_grad()
     def add_new_experience(self, experience):
         """
